@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "prodpilot": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/.venv/Scripts/prodpilot.exe",
+      "args": ["serve"]
+    }
+  }
+}

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "prodpilot"
+version = "0.1.0"
+description = "A layered MCP-based system for automated production readiness and deployment of vibe-coded projects."
+requires-python = ">=3.11,<3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Muhammad Sudais Khalid", email = "msudaiskhalid.ai@gmail.com" },
+    { name = "Muhammad Farooq Khan" },
+    { name = "Muhammad Talha Khan" },
+]
+dependencies = [
+    "mcp>=2.0.0",
+    "typer>=0.16.0",
+]
+
+[project.scripts]
+prodpilot = "prodpilot.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prodpilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
