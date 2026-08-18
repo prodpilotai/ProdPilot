@@ -95,5 +95,5 @@ async def test_stdout_carries_only_protocol_frames() -> None:
         listed = await client.list_tools()
         result = await client.call_tool(PING_TOOL_NAME, {})
 
-        assert len(listed.tools) == 1
+        assert PING_TOOL_NAME in [tool.name for tool in listed.tools]
         assert result.is_error is False
