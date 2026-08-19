@@ -15,6 +15,8 @@ import pytest
 from prodpilot.blueprint import (
     NODE_EXPRESS_BLUEPRINT,
     REACT_VITE_BLUEPRINT,
+    Domain,
+    Priority,
     Stack,
     get_blueprint,
     supported_stacks,
@@ -84,6 +86,51 @@ def test_react_without_vite_is_unrecognized(tmp_path: Path):
     assert "vite" in result.reason
 
 
+def test_vite_detected_from_typescript_config_without_the_package():
+    """Vite is often only a transitive install, so the config file also counts."""
+    result = detect_stack(SAMPLES / "react_vite_ts_config")
+
+    assert result.stack is Stack.REACT_VITE
+    assert result.is_supported
+    assert result.blueprint() is REACT_VITE_BLUEPRINT
+    assert "vite.config.ts" in result.evidence.config_files_found
+    assert "vite" not in result.evidence.declared_dependencies
+
+
+def test_vite_without_react_is_unrecognized():
+    """Vite drives other frameworks too, so Vite alone must not match."""
+    result = detect_stack(SAMPLES / "vite_without_react")
+
+    assert result.stack is Stack.UNRECOGNIZED
+    assert result.blueprint() is None
+    assert "react" in result.reason
+
+
+def test_manifest_that_is_not_an_object_is_unrecognized(tmp_path: Path):
+    """A syntactically valid manifest can still be the wrong shape."""
+    (tmp_path / "package.json").write_text(json.dumps(["express"]), encoding="utf-8")
+
+    result = detect_stack(tmp_path)
+
+    assert result.stack is Stack.UNRECOGNIZED
+    assert result.evidence.manifest_found
+    assert not result.evidence.manifest_readable
+
+
+def test_dependency_sections_that_are_not_objects_are_ignored(tmp_path: Path):
+    """A malformed dependencies block must not raise, it must simply not match."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"dependencies": "express", "devDependencies": ["vite"]}),
+        encoding="utf-8",
+    )
+
+    result = detect_stack(tmp_path)
+
+    assert result.stack is Stack.UNRECOGNIZED
+    assert result.evidence.manifest_readable
+    assert result.evidence.declared_dependencies == ()
+
+
 def test_malformed_manifest_is_unrecognized_not_an_exception(tmp_path: Path):
     (tmp_path / "package.json").write_text("{ not valid json", encoding="utf-8")
 
@@ -110,6 +157,47 @@ def test_file_path_raises_detection_error(tmp_path: Path):
 def test_blueprints_cover_only_the_supported_stacks():
     assert set(supported_stacks()) == {Stack.NODE_EXPRESS, Stack.REACT_VITE}
     assert get_blueprint(Stack.UNRECOGNIZED) is None
+
+
+def test_every_rule_domain_is_covered_or_declared_not_applicable():
+    """Section 4 lists nine domains. Each must be accounted for per stack.
+
+    Guards against a domain being silently dropped from a blueprint. A domain
+    that cannot apply to a stack has to say so rather than just be absent.
+    """
+    for blueprint in (NODE_EXPRESS_BLUEPRINT, REACT_VITE_BLUEPRINT):
+        accounted = blueprint.covered_domains | set(blueprint.not_applicable_domains)
+        assert accounted == set(Domain), (
+            f"{blueprint.stack.value} does not account for "
+            f"{sorted(d.value for d in set(Domain) - accounted)}"
+        )
+        assert not (blueprint.covered_domains & set(blueprint.not_applicable_domains))
+
+
+def test_every_priority_tier_is_represented_across_the_ruleset():
+    """P0 through P5 all exist in Section 4, so the blueprints must use them."""
+    used = {
+        item.priority
+        for blueprint in (NODE_EXPRESS_BLUEPRINT, REACT_VITE_BLUEPRINT)
+        for item in blueprint.items
+    }
+    assert used == set(Priority)
+
+
+def test_ruleset_meets_the_declared_v1_size():
+    """Section 4 freezes v1 at 40 or more rules across the two stacks."""
+    total = NODE_EXPRESS_BLUEPRINT.item_count + REACT_VITE_BLUEPRINT.item_count
+    assert total >= 40
+
+
+def test_blueprint_item_ids_are_namespaced_by_stack():
+    """Phase 2 will key rules off item_id, so ids must not collide across stacks."""
+    node_ids = {item.item_id for item in NODE_EXPRESS_BLUEPRINT.items}
+    react_ids = {item.item_id for item in REACT_VITE_BLUEPRINT.items}
+
+    assert not node_ids & react_ids
+    assert all(i.startswith("node.") for i in node_ids)
+    assert all(i.startswith("react.") for i in react_ids)
 
 
 def test_blueprint_items_have_unique_ids():

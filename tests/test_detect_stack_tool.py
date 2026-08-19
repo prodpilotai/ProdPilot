@@ -124,6 +124,30 @@ async def test_each_supported_sample_gets_a_different_blueprint() -> None:
         assert node_ids.isdisjoint(react_ids)
 
 
+async def test_config_file_detection_path_works_over_stdio() -> None:
+    """Vite found by config file rather than by dependency still loads a blueprint."""
+    async with connected_session() as client:
+        payload = await call_detect(client, "react_vite_ts_config")
+
+        assert payload["ok"] is True
+        assert payload["detection"]["stack"] == Stack.REACT_VITE.value
+        assert "vite.config.ts" in payload["detection"]["evidence"]["config_files_found"]
+        assert payload["blueprint"]["item_count"] > 0
+
+
+async def test_blueprint_reports_domains_that_do_not_apply() -> None:
+    """Phase 2 needs to tell an absent domain from an inapplicable one."""
+    async with connected_session() as client:
+        node = await call_detect(client, "node_express_api")
+        react = await call_detect(client, "react_vite_app")
+
+        assert node["blueprint"]["not_applicable_domains"] == []
+        assert set(react["blueprint"]["not_applicable_domains"]) == {
+            "connectivity",
+            "api",
+        }
+
+
 async def test_bad_path_returns_structured_error_not_a_crash() -> None:
     """A missing path must fail explicitly and leave the server usable."""
     async with connected_session() as client:

@@ -88,6 +88,14 @@ class ProductionBlueprint:
     required_files: tuple[BlueprintItem, ...] = field(default_factory=tuple)
     required_configs: tuple[BlueprintItem, ...] = field(default_factory=tuple)
     required_code_patterns: tuple[BlueprintItem, ...] = field(default_factory=tuple)
+    not_applicable_domains: tuple[Domain, ...] = field(default_factory=tuple)
+    """Domains from Section 4 that cannot apply to this stack.
+
+    Declared explicitly so the Phase 2 audit engine can tell a domain that
+    genuinely does not apply from one whose rules were forgotten. A static
+    single page application opens no database connection and serves no API of
+    its own, so those domains are absent by design rather than by omission.
+    """
 
     @property
     def item_count(self) -> int:
@@ -96,6 +104,18 @@ class ProductionBlueprint:
             + len(self.required_configs)
             + len(self.required_code_patterns)
         )
+
+    @property
+    def items(self) -> tuple[BlueprintItem, ...]:
+        """Every requirement in this blueprint, in declaration order."""
+        return (
+            self.required_files + self.required_configs + self.required_code_patterns
+        )
+
+    @property
+    def covered_domains(self) -> frozenset[Domain]:
+        """Domains this blueprint declares at least one requirement for."""
+        return frozenset(item.domain for item in self.items)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -106,6 +126,7 @@ class ProductionBlueprint:
             "required_files": [i.to_dict() for i in self.required_files],
             "required_configs": [i.to_dict() for i in self.required_configs],
             "required_code_patterns": [i.to_dict() for i in self.required_code_patterns],
+            "not_applicable_domains": [d.value for d in self.not_applicable_domains],
         }
 
 
@@ -140,9 +161,12 @@ NODE_EXPRESS_BLUEPRINT = ProductionBlueprint(
         BlueprintItem("node.code.api_versioning", "routes are mounted under a versioned prefix", Domain.API, Priority.P2),
         BlueprintItem("node.code.error_middleware", "a centralised error handler returns a consistent error shape and leaks no stack traces", Domain.API, Priority.P2),
         BlueprintItem("node.code.service_layer", "database calls live in a service layer rather than inside controllers", Domain.STRUCTURE, Priority.P3),
+        BlueprintItem("node.code.thin_route_handlers", "business logic lives in services rather than inline in route handlers", Domain.STRUCTURE, Priority.P3),
         BlueprintItem("node.code.health_endpoint", "a health check endpoint is exposed", Domain.OBSERVABILITY, Priority.P4),
         BlueprintItem("node.code.structured_logging", "structured logging is configured rather than bare console output", Domain.OBSERVABILITY, Priority.P4),
+        BlueprintItem("node.code.monitoring_hooks", "the process exposes monitoring hooks the hosting platform can scrape", Domain.OBSERVABILITY, Priority.P4),
         BlueprintItem("node.code.graceful_shutdown", "SIGTERM is handled so the server drains connections before exit", Domain.OBSERVABILITY, Priority.P4),
+        BlueprintItem("node.history.no_committed_secrets", "no secret appears anywhere in the committed Git history", Domain.GIT_HYGIENE, Priority.P5),
     ),
 )
 
@@ -167,6 +191,8 @@ REACT_VITE_BLUEPRINT = ProductionBlueprint(
         BlueprintItem("react.config.multistage_build", "Dockerfile builds in one stage and serves the built assets from a static image", Domain.BUILD, Priority.P1),
         BlueprintItem("react.config.spa_fallback", "nginx falls back to index.html so client side routes resolve on refresh", Domain.BUILD, Priority.P1),
         BlueprintItem("react.config.non_root_user", "Dockerfile runs the server process as a non-root user", Domain.SECURITY, Priority.P0),
+        BlueprintItem("react.config.health_path", "nginx serves a health path the hosting platform can probe without loading the application bundle", Domain.OBSERVABILITY, Priority.P4),
+        BlueprintItem("react.config.access_logging", "nginx access and error logging is enabled and writes to the container log stream", Domain.OBSERVABILITY, Priority.P4),
     ),
     required_code_patterns=(
         BlueprintItem("react.code.api_url_from_env", "the API base URL is read from import.meta.env rather than hardcoded", Domain.ENVIRONMENT, Priority.P0),
@@ -175,7 +201,9 @@ REACT_VITE_BLUEPRINT = ProductionBlueprint(
         BlueprintItem("react.code.security_headers", "the serving layer sets Content Security Policy and related security headers", Domain.SECURITY, Priority.P0),
         BlueprintItem("react.code.error_boundary", "an error boundary wraps the root of the component tree", Domain.STRUCTURE, Priority.P3),
         BlueprintItem("react.code.catch_all_route", "the client router handles unmatched routes with a catch all", Domain.STRUCTURE, Priority.P3),
+        BlueprintItem("react.history.no_committed_secrets", "no secret appears anywhere in the committed Git history", Domain.GIT_HYGIENE, Priority.P5),
     ),
+    not_applicable_domains=(Domain.CONNECTIVITY, Domain.API),
 )
 
 
