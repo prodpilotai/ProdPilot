@@ -16,6 +16,7 @@ authors = [
 dependencies = [
     "mcp>=2.0.0",
     "typer>=0.16.0",
+    "tomli-w>=1.0.0",
 ]
 
 [project.scripts]

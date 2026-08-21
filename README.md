@@ -10,8 +10,9 @@ Shifa Tameer-e-Millat University.
 
 ## Current state
 
-Phase 1 modules 1.1 and 1.2 are implemented. The audit engine, the fix loop, the
-scoring gate, and the deployment module are not built yet.
+Phase 1 is implemented: the MCP server skeleton, Layer 0 detection and
+blueprints, and local config and secrets handling. The audit engine, the fix
+loop, the scoring gate, and the deployment module are not built yet.
 
 ## Running the server
 
@@ -30,6 +31,8 @@ Registering it in VS Code is done through `.vscode/mcp.json` in this repository.
 | --- | --- |
 | `prodpilot_ping` | Connectivity check. Returns a fixed payload, reads no files. |
 | `prodpilot_detect_stack` | Identifies a project's stack and returns the matching production blueprint. |
+
+Commands: `prodpilot serve`, `prodpilot setup`, `prodpilot doctor`.
 
 ## Layer 0: detection and blueprint
 
@@ -90,6 +93,72 @@ own, so `connectivity` and `api` are declared inapplicable to the React blueprin
 rather than left silently absent. This distinction matters to Phase 2, which
 otherwise cannot tell a domain that does not apply from one whose rules were
 forgotten.
+
+## Configuration and secrets
+
+ProdPilot keeps two kinds of state, deliberately in two different places.
+
+| | Location | Holds | Committed |
+| --- | --- | --- | --- |
+| Credentials | `~/.prodpilot/config.toml` | GitHub token, Render API key | never |
+| Project state | `<project>/.env.prodpilot` | deployment identifiers for one project | never, gitignored |
+
+A GitHub token and a Render API key belong to the developer, not to any one
+repository, so they live in the user's home directory and never inside a project
+tree. Deployment state belongs to a single project, so it lives beside it.
+
+Design principle 5 in Section 2.1 of the Complete Solution Document states that
+secrets are never written to any committed file. Both halves of this split exist
+to uphold that.
+
+### First run
+
+```
+prodpilot setup
+```
+
+Prompts for the GitHub token and the Render API key, writes them to
+`~/.prodpilot/config.toml`, and restricts that file to the current user. Nothing
+entered is printed back to the terminal, and rerunning it lets you keep an
+existing value by pressing enter.
+
+File access is restricted and then verified rather than assumed. On POSIX the
+file is set to mode `0600`. On Windows `os.chmod` cannot express this, since it
+only toggles the read only flag and leaves inherited entries for other accounts
+in place, so ProdPilot breaks inheritance and grants the current user sole
+access through `icacls`. Either way the resulting permissions are read back and
+reported. If the file could not be restricted, setup says so and exits non-zero
+rather than reporting success it cannot prove.
+
+### Checking prerequisites
+
+```
+prodpilot doctor
+prodpilot doctor --project /path/to/project
+```
+
+Reports whether the config file exists, whether each required credential is
+stored, and whether the file is readable by other accounts. Credential values
+are never rendered, only their presence. With `--project` it also reports
+whether `.env.prodpilot` is excluded from version control. It exits non-zero
+when anything required is missing, so a failure is visible to a script.
+
+### `.env.prodpilot`
+
+A project local, gitignored file holding per project deployment state. ProdPush
+populates it in Phase 6. The keys are fixed now so nothing has to invent them
+later:
+
+| Key | Meaning |
+| --- | --- |
+| `PRODPILOT_SERVICE_ID` | Render service identifier |
+| `PRODPILOT_DEPLOY_ID` | most recent deploy identifier |
+| `PRODPILOT_SERVICE_URL` | live service URL |
+
+Writing a key whose name looks like a credential, matching `TOKEN`, `SECRET`,
+`PASSWORD`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL`, is refused rather than
+warned about. There is no supported way to put a secret into a project
+directory through this API.
 
 ## Development
 
