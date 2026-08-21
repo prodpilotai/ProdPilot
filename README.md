@@ -10,9 +10,14 @@ Shifa Tameer-e-Millat University.
 
 ## Current state
 
-Phase 1 is implemented: the MCP server skeleton, Layer 0 detection and
+Phase 1 is complete: the MCP server skeleton, Layer 0 detection and
 blueprints, and local config and secrets handling. The audit engine, the fix
 loop, the scoring gate, and the deployment module are not built yet.
+
+Phase 1 closed with one stated gap. Invocation from Copilot agent mode is
+untested, blocked by an exhausted account quota rather than by anything in the
+project, and the two Section 8 week-one questions move to Phase 7. See
+[docs/phase1-verification.md](docs/phase1-verification.md) for the full record.
 
 ## Running the server
 
