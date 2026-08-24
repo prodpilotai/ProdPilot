@@ -53,13 +53,39 @@ class Scope(str, Enum):
 class CheckType(str, Enum):
     """How a rule is evaluated, per Section 4.
 
-    AST covers anything decided by parsing JavaScript into a syntax tree.
+    Section 4 defines exactly three check types and this enum does not add a
+    fourth. The three are interpreted as follows.
+
+    AST covers anything decided by parsing JavaScript into a syntax tree, which
+    is every rule about code structure or code patterns.
+
     ENTROPY_SCAN covers the search for high entropy strings that indicate a
-    committed secret. FILE_EXISTENCE covers the rest: whether a required file is
-    present, and whether a non-JavaScript configuration file such as .gitignore,
-    package.json, a Dockerfile or an nginx configuration contains a required
-    line. Section 4 defines only these three, so configuration content checks
-    sit here rather than under a fourth type.
+    secret, whether in working tree source or in committed history.
+
+    FILE_EXISTENCE covers two things that look different but are the same kind
+    of work: whether a required file is present, and whether a non-JavaScript
+    configuration file contains a required line. Half the ruleset falls here,
+    including rules such as ".gitignore excludes node_modules" and
+    "package.json pins the Node engine", which read file content rather than
+    merely testing for presence.
+
+    That is a deliberate interpretation rather than a gap, and Section 4 sets
+    the precedent itself. Its own P0 example, ".env.example missing", is written
+    as a presence check but is only meaningful as a content check, since the
+    matching blueprint requirement is that the file covers every environment key
+    the code reads. A file that exists but lists nothing still fails the rule.
+    Presence and simple content assertion were therefore never separate
+    categories in the specification.
+
+    The practical boundary is the parser required, not the question asked.
+    Anything needing a JavaScript syntax tree is AST. Anything needing entropy
+    analysis is ENTROPY_SCAN. Everything else is read as lines of text from a
+    known configuration file, and that is FILE_EXISTENCE regardless of whether
+    the rule asks "is this file here" or "does this file say this". Module 2.3
+    implements both behaviours behind this single check type.
+
+    Adding a fourth type would fork the vocabulary away from the Complete
+    Solution Document for no gain in what the checker actually has to do.
     """
 
     AST = "ast"
@@ -280,6 +306,18 @@ NODE_EXPRESS_RULES: tuple[Rule, ...] = (
           "the process must expose monitoring hooks the hosting platform can scrape", "tpl.node.monitoring_hooks"),
     _rule("OBS-004", "node.code.graceful_shutdown", Stack.NODE_EXPRESS, OBS, P4, FILE, AST, STATIC,
           "SIGTERM must be handled so the server drains connections before exit", "tpl.node.graceful_shutdown"),
+    # GIT-003 is delegated even though it is not a structure rule. Section 4.1
+    # introduces DYNAMIC-DELEGATED with "structural rules such as the P3
+    # domain", which names the common case as an example rather than fixing the
+    # boundary at that domain. The test for delegation is whether the fix needs
+    # judgment about this specific codebase, and removing a secret from
+    # committed history does. It rewrites published commits, so the correct
+    # action depends on how far back the secret goes, whether the branch is
+    # shared, and whether the credential has already been rotated. There is no
+    # template that is correct for every repository, and nothing to extract
+    # mechanically, which rules out STATIC and DYNAMIC-PARAMETRIC. The agent
+    # holds the repository context needed to decide, so it authors the change
+    # under a constraint and the result is re-verified like any other fix.
     _rule("GIT-003", "node.history.no_committed_secrets", Stack.NODE_EXPRESS, GIT, P5, CROSS, ENTROPY, DELEG,
           "no secret may appear anywhere in the committed Git history", "con.node.history_secret_removal"),
 )
@@ -330,6 +368,10 @@ REACT_VITE_RULES: tuple[Rule, ...] = (
           "an error boundary must wrap the root of the component tree", "con.react.error_boundary"),
     _rule("STR-004", "react.code.catch_all_route", Stack.REACT_VITE, STR, P3, FILE, AST, DELEG,
           "the client router must handle unmatched routes with a catch all", "con.react.catch_all_route"),
+    # GIT-007 is the React counterpart of GIT-003 and is delegated for the same
+    # reason. See the comment on GIT-003 for why a git-hygiene rule qualifies
+    # for delegated treatment despite Section 4.1 framing that classification
+    # around structural rules.
     _rule("GIT-007", "react.history.no_committed_secrets", Stack.REACT_VITE, GIT, P5, CROSS, ENTROPY, DELEG,
           "no secret may appear anywhere in the committed Git history", "con.react.history_secret_removal"),
 )
