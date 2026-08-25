@@ -18,3 +18,9 @@ htmlcov/
 
 .DS_Store
 Thumbs.db
+
+# Vendored JavaScript parser. The dist rule above matches acorn's build
+# directory, which would drop the parser itself from both the repository and
+# the wheel and ship a package that cannot parse anything.
+!src/prodpilot/vendor/node_modules/acorn/dist/
+!src/prodpilot/vendor/**
