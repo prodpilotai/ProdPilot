@@ -1,0 +1,12 @@
+{
+  "name": "payments-api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/server.js",
+  "engines": { "node": ">=20 <21" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": { "express": "^4.19.2", "helmet": "^7.1.0" }
+}
