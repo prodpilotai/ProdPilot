@@ -14,6 +14,7 @@ import pytest
 
 from prodpilot.astchecks import (
     CHECKS,
+    PROJECT_CHECKS,
     Finding,
     Status,
     check_file,
@@ -143,7 +144,7 @@ def test_findings_carry_the_fields_module_two_four_needs():
 
     assert findings
     for f in findings:
-        assert f.rule_id in CHECKS
+        assert f.rule_id in CHECKS or f.rule_id in PROJECT_CHECKS
         assert isinstance(f.status, Status)
         assert f.file
         assert isinstance(f.to_dict(), dict)
@@ -332,11 +333,15 @@ def test_is_app_separates_the_app_from_a_router():
 
 
 def test_react_project_is_skipped_by_the_express_checks():
-    """React fixtures parse cleanly and simply do not match these rules."""
+    """A React project does not match any Express specific rule."""
     findings = check_project(SAMPLES / "react_vite_app")
+    express_only = {"SEC-002", "SEC-003", "SEC-004", "API-001", "API-003",
+                    "ENV-002", "OBS-001", "OBS-002", "OBS-003", "OBS-004"}
 
     assert findings
-    assert all(f.status is Status.SKIPPED for f in findings)
+    for f in findings:
+        if f.rule_id in express_only:
+            assert f.status is Status.SKIPPED, f.rule_id
 
 
 def test_jsx_fixture_parses_rather_than_erroring():
@@ -376,3 +381,273 @@ def test_unparseable_file_is_reported_as_unparsed(tmp_path: Path):
     statuses = {f.status for f in findings}
     assert Status.UNPARSED in statuses
     assert Status.PASS not in statuses
+
+
+# --------------------------------------------------------------------------
+# the rules completed in the second pass over module 2.2
+# --------------------------------------------------------------------------
+
+HARD_NODE = SAMPLES / "node_express_hardened"
+HARD_REACT = SAMPLES / "react_vite_hardened"
+
+
+def rule(findings: list[Finding], rule_id: str) -> Finding:
+    """The single non-skipped finding for a rule across a project."""
+    live = [f for f in findings if f.rule_id == rule_id and f.status is not Status.SKIPPED]
+    assert len(live) == 1, f"expected one live {rule_id} finding, got {len(live)}"
+    return live[0]
+
+
+def node_project(tmp_path: Path, server: str, extra: dict[str, str] | None = None) -> Path:
+    """Write a minimal Express project for a single rule's failure case."""
+    (tmp_path / "package.json").write_text('{"dependencies":{"express":"1"}}', encoding="utf-8")
+    (tmp_path / "server.js").write_text(server, encoding="utf-8")
+    for name, body in (extra or {}).items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+    return tmp_path
+
+
+def react_project(tmp_path: Path, files: dict[str, str]) -> Path:
+    """Write a minimal React project for a single rule's failure case."""
+    (tmp_path / "package.json").write_text(
+        '{"dependencies":{"react":"1","react-dom":"1"},"devDependencies":{"vite":"1"}}',
+        encoding="utf-8",
+    )
+    for name, body in files.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+    return tmp_path
+
+
+def test_every_ast_rule_in_the_store_now_has_a_check():
+    """Closes the gap the module 2.2 report left open at 5 of 21."""
+    from prodpilot.rules import ALL_RULES
+
+    target = {r.rule_id for r in ALL_RULES if r.check_type is CheckType.AST}
+    wired = set(CHECKS) | set(PROJECT_CHECKS)
+
+    assert wired == target, f"missing {sorted(target - wired)}"
+    assert len(target) == 21
+
+
+def test_project_checks_carry_the_cross_file_rules():
+    """A cross-file rule cannot be decided from one file, so it runs once."""
+    for rule_id in PROJECT_CHECKS:
+        assert get_rule(rule_id).scope.value == "cross_file", rule_id
+
+
+def test_hardened_node_project_passes_every_applicable_rule():
+    findings = check_project(HARD_NODE)
+
+    failed = sorted({f.rule_id for f in findings if f.status is Status.FAIL})
+    assert failed == [], f"unexpected failures: {failed}"
+
+
+def test_hardened_react_project_passes_every_applicable_rule():
+    findings = check_project(HARD_REACT)
+
+    failed = sorted({f.rule_id for f in findings if f.status is Status.FAIL})
+    assert failed == [], f"unexpected failures: {failed}"
+
+
+def test_csp_and_https_redirect_pass_together():
+    assert rule(check_project(HARD_NODE), "SEC-004").status is Status.PASS
+
+
+def test_missing_https_redirect_fails():
+    f = rule(check_project(SECURE), "SEC-004")
+
+    assert f.status is Status.FAIL
+    assert "HTTPS redirect" in f.detail
+
+
+def test_port_from_env_passes():
+    assert rule(check_project(HARD_NODE), "ENV-002").status is Status.PASS
+
+
+def test_hardcoded_port_fails():
+    f = rule(check_project(INSECURE), "ENV-002")
+
+    assert f.status is Status.FAIL
+    assert "3000" in f.detail
+
+
+def test_pooled_connection_from_env_passes():
+    findings = check_project(HARD_NODE)
+
+    assert rule(findings, "CON-001").status is Status.PASS
+    assert rule(findings, "CON-002").status is Status.PASS
+
+
+def test_inline_credentials_fail(tmp_path: Path):
+    node_project(
+        tmp_path,
+        'const express = require("express");\nconst app = express();\n',
+        {"db.js": 'const { Pool } = require("pg");\n'
+                  'const pool = new Pool({ connectionString: '
+                  '"postgres://admin:hunter2@db.example.com:5432/app" });\n'},
+    )
+    f = rule(check_project(tmp_path), "CON-001")
+
+    assert f.status is Status.FAIL
+    assert "inline credentials" in f.detail
+
+
+def test_unpooled_client_fails(tmp_path: Path):
+    node_project(
+        tmp_path,
+        'const express = require("express");\nconst app = express();\n',
+        {"db.js": 'const { Client } = require("pg");\n'
+                  "const c = new Client({ connectionString: process.env.DATABASE_URL });\n"},
+    )
+    f = rule(check_project(tmp_path), "CON-002")
+
+    assert f.status is Status.FAIL
+    assert "no pool" in f.detail
+
+
+def test_rate_limiter_passes():
+    assert rule(check_project(HARD_NODE), "API-001").status is Status.PASS
+
+
+def test_missing_rate_limiter_fails():
+    assert rule(check_project(SECURE), "API-001").status is Status.FAIL
+
+
+def test_versioned_mount_passes():
+    f = rule(check_project(HARD_NODE), "API-002")
+
+    assert f.status is Status.PASS
+    assert "/api/v1" in f.detail
+
+
+def test_unversioned_mount_fails():
+    f = rule(check_project(WILDCARD), "API-002")
+
+    assert f.status is Status.FAIL
+    assert "no versioned prefix" in f.detail
+
+
+def test_observability_rules_pass_on_the_hardened_project():
+    findings = check_project(HARD_NODE)
+
+    for rule_id in ("OBS-001", "OBS-002", "OBS-003", "OBS-004"):
+        assert rule(findings, rule_id).status is Status.PASS, rule_id
+
+
+def test_observability_rules_fail_on_a_bare_server():
+    findings = check_project(SECURE)
+
+    for rule_id in ("OBS-002", "OBS-003", "OBS-004"):
+        assert rule(findings, rule_id).status is Status.FAIL, rule_id
+
+
+def test_missing_health_endpoint_fails():
+    f = rule(check_project(WILDCARD), "OBS-001")
+
+    assert f.status is Status.FAIL
+    assert "health" in f.detail
+
+
+def test_env_example_covering_every_key_passes():
+    assert rule(check_project(HARD_NODE), "ENV-001").status is Status.PASS
+    assert rule(check_project(HARD_REACT), "ENV-003").status is Status.PASS
+
+
+def test_missing_env_example_fails():
+    f = rule(check_project(SECURE), "ENV-001")
+
+    assert f.status is Status.FAIL
+    assert "no .env.example" in f.detail
+
+
+def test_env_example_missing_a_key_fails(tmp_path: Path):
+    node_project(
+        tmp_path,
+        'const express = require("express");\nconst app = express();\n'
+        "const a = process.env.PORT;\nconst b = process.env.SESSION_SECRET;\n",
+    )
+    (tmp_path / ".env.example").write_text("PORT=3000\n", encoding="utf-8")
+    f = rule(check_project(tmp_path), "ENV-001")
+
+    assert f.status is Status.FAIL
+    assert "SESSION_SECRET" in f.detail
+
+
+def test_vite_coverage_ignores_keys_the_client_cannot_read(tmp_path: Path):
+    """Vite only exposes VITE_ names, so others are not required in the template."""
+    react_project(tmp_path, {
+        "app.jsx": "const a = import.meta.env.VITE_API_URL;\n"
+                   "const b = import.meta.env.MODE;\n",
+        ".env.example": "VITE_API_URL=https://x.example.com\n",
+    })
+    assert rule(check_project(tmp_path), "ENV-003").status is Status.PASS
+
+
+def test_api_url_from_import_meta_env_passes():
+    assert rule(check_project(HARD_REACT), "ENV-004").status is Status.PASS
+
+
+def test_literal_api_url_fails(tmp_path: Path):
+    react_project(tmp_path, {
+        "api.js": 'export const get = () => fetch("https://api.example.com/orders");\n',
+    })
+    findings = check_project(tmp_path)
+
+    assert rule(findings, "ENV-004").status is Status.FAIL
+    assert rule(findings, "ENV-005").status is Status.FAIL
+
+
+def test_localhost_is_not_treated_as_a_backend_host(tmp_path: Path):
+    """A development URL is not a deployment problem, so it must not be flagged."""
+    node_project(
+        tmp_path,
+        'const express = require("express");\nconst app = express();\n'
+        'const dev = "http://localhost:3000/api";\n',
+    )
+    assert rule(check_project(tmp_path), "ENV-005").status is Status.PASS
+
+
+def test_error_boundary_wrapping_the_root_passes():
+    f = rule(check_project(HARD_REACT), "STR-003")
+
+    assert f.status is Status.PASS
+    assert "ErrorBoundary" in f.detail
+
+
+def test_missing_error_boundary_fails():
+    f = rule(check_project(SAMPLES / "react_vite_app"), "STR-003")
+
+    assert f.status is Status.FAIL
+    assert "no error boundary" in f.detail
+
+
+def test_catch_all_route_passes():
+    assert rule(check_project(HARD_REACT), "STR-004").status is Status.PASS
+
+
+def test_router_without_a_catch_all_fails(tmp_path: Path):
+    react_project(tmp_path, {
+        "main.jsx": 'import { Routes, Route } from "react-router-dom";\n'
+                    "export default () => (\n  <Routes>\n"
+                    '    <Route path="/" element={<Home />} />\n  </Routes>\n);\n',
+    })
+    f = rule(check_project(tmp_path), "STR-004")
+
+    assert f.status is Status.FAIL
+    assert "no catch all" in f.detail
+
+
+def test_express_file_is_not_mistaken_for_a_client_router(tmp_path: Path):
+    """An object carrying a path key is not a route table."""
+    node_project(
+        tmp_path,
+        'const express = require("express");\nconst app = express();\n'
+        'app.use((err, req, res, next) => { log("failed", { path: req.path }); });\n',
+    )
+    findings = [f for f in check_project(tmp_path) if f.rule_id == "STR-004"]
+
+    assert all(f.status is Status.SKIPPED for f in findings)

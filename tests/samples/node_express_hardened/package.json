@@ -1,0 +1,17 @@
+{
+  "name": "orders-api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/server.js",
+  "engines": { "node": ">=20 <21" },
+  "scripts": { "start": "node src/server.js" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.2.0",
+    "winston": "^3.13.0",
+    "prom-client": "^15.1.2",
+    "pg": "^8.11.5"
+  }
+}
