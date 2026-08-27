@@ -13,8 +13,8 @@ parser required, not the question asked. Anything answered by reading lines from
 a known configuration file belongs here, whether it asks "is this file present"
 or "does this file say this".
 
-Finding and Status are imported from astchecks rather than redeclared, so module
-2.4 receives one shape from the whole audit engine.
+Finding and Status come from the shared findings module, so module 2.4
+receives one shape from the whole audit engine.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from prodpilot.astchecks import Finding, Status
+from prodpilot.findings import Finding, Status
 from prodpilot.blueprint import Stack
 from prodpilot.detection import detect_stack
 from prodpilot.entropy import HistoryUnavailable, is_repo, scan_history, scan_project

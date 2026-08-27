@@ -28,9 +28,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 
+from prodpilot.findings import Finding, Status
 from prodpilot.jsparse import (
     Tree,
     calls,
@@ -62,51 +62,6 @@ DB_OBJECTS = frozenset({"db", "prisma", "knex", "pool", "client", "connection", 
 
 SKIP_DIRS = frozenset({"node_modules", "dist", "build", ".git", "coverage", ".next"})
 JS_SUFFIXES = frozenset({".js", ".jsx", ".mjs", ".cjs"})
-
-
-class Status(str, Enum):
-    """Outcome of one check against one file."""
-
-    PASS = "pass"
-    FAIL = "fail"
-    SKIPPED = "skipped"
-    UNPARSED = "unparsed"
-
-
-@dataclass(frozen=True)
-class Finding:
-    """One check result, shaped for module 2.4 to aggregate.
-
-    A finding is always tied to a rule_id and a file. line is the position of
-    the violation when there is one to point at. SKIPPED means the rule does
-    not apply to this file, so 2.4 should not count it either way. UNPARSED
-    means the file could not be read as JavaScript, which is never treated as a
-    pass.
-    """
-
-    rule_id: str
-    status: Status
-    file: str
-    line: int | None = None
-    detail: str = ""
-
-    @property
-    def counts(self) -> bool:
-        """Whether this finding contributes to a score at all."""
-        return self.status in (Status.PASS, Status.FAIL)
-
-    @property
-    def passed(self) -> bool:
-        return self.status is Status.PASS
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "rule_id": self.rule_id,
-            "status": self.status.value,
-            "file": self.file,
-            "line": self.line,
-            "detail": self.detail,
-        }
 
 
 # --------------------------------------------------------------------------
