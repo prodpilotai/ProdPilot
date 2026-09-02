@@ -1,0 +1,246 @@
+"""Fix dispatch and MCP tool wiring for the bounded agentic loop.
+
+Scope is Phase 3 module 3.5. Modules 3.2, 3.3 and 3.4 each produce a fix
+contract for one fix type. This module decides which of them owns a given issue,
+carries the contract out to the IDE agent over MCP, and takes the agent's answer
+back. It produces no fix content of its own.
+
+It is not module 3.6. The verdict on whether a fix actually worked is not
+computed here and is not defaulted to anything. See the seam section below.
+
+How dispatch is decided
+-----------------------
+By the fix_type field on the rule, read from the frozen store. Section 5.3 lists
+classification as the step before any fix is produced, and rules.py already
+records that classification for all 50 rules, so nothing is re-derived here. An
+issue whose fix type has no resolver is blocked, not guessed at.
+
+The two contract forms
+----------------------
+Section 5.2 defines two. STATIC and DYNAMIC-PARAMETRIC both produce the first,
+where ProdPilot determines the content, so both arrive here as a templates
+Instruction. DYNAMIC-DELEGATED produces the second, where ProdPilot supplies
+only the boundary, and arrives as a constraints Delegation. Form records which
+one the agent is holding so it never has to infer that from the field names.
+
+The two seams
+-------------
+agent is the MCP side. It carries one contract to the IDE agent and returns what
+the agent says it did. That answer is a Claim, and the name is the point: it is
+a self-report and it is recorded, never believed.
+
+verify is module 3.6. Given a rule id it re-runs that rule's checker against the
+project and answers whether the rule passes now. Nothing in this module can
+answer that question, so nothing here tries.
+
+Why verify has no default
+-------------------------
+Section 5.3 states that agent self-report is never trusted, and 3.6 is the one
+mechanism the whole system depends on for correctness. A default would make the
+absence of verification invisible: the loop would report RESOLVED and no test
+would fail. So Fixer requires verify, and the MCP tool that reports an applied
+fix answers with an explicit error when no verify is wired rather than with an
+outcome. An unwired verification is a loud failure here, not a quiet pass.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+
+from prodpilot import constraints, extraction, templates
+from prodpilot.audit import Report, RuleResult
+from prodpilot.constraints import Delegation
+from prodpilot.rules import FixType, get_rule
+from prodpilot.templates import Instruction
+
+logger = logging.getLogger(__name__)
+
+
+class DispatchError(Exception):
+    """Raised when an issue cannot be routed to a resolver."""
+
+
+class Form(str, Enum):
+    """Which of Section 5.2's two contract forms a fix is in."""
+
+    CONTENT = "content"
+    CONSTRAINT = "constraint"
+
+
+# The mapping Section 5.2 sets out. fix_type comes from rules.py and is the only
+# input, so classification lives in one place and is not repeated here.
+FORMS: dict[FixType, Form] = {
+    FixType.STATIC: Form.CONTENT,
+    FixType.DYNAMIC_PARAMETRIC: Form.CONTENT,
+    FixType.DYNAMIC_DELEGATED: Form.CONSTRAINT,
+}
+
+
+@dataclass(frozen=True)
+class Fix:
+    """One rendered contract, ready to travel to the agent."""
+
+    rule_id: str
+    fix_type: FixType
+    form: Form
+    body: dict[str, str]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "rule_id": self.rule_id,
+            "fix_type": self.fix_type.value,
+            "form": self.form.value,
+            "contract": self.body,
+        }
+
+
+@dataclass(frozen=True)
+class Claim:
+    """What the agent says it did.
+
+    Deliberately not called a result. Section 5.3 rules out acting on this, so
+    it is carried for the record and for the delegated success rate Section 5.3
+    asks to be tracked, and it never decides an outcome.
+    """
+
+    rule_id: str
+    applied: bool
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "rule_id": self.rule_id,
+            "applied": self.applied,
+            "summary": self.summary,
+        }
+
+
+# The MCP side: carry one contract to the IDE agent, return what it reports.
+Agent = Callable[[Fix], Claim]
+
+# Module 3.6: given a rule id, re-run that rule's checker and answer whether the
+# rule passes now. The project root is bound by whoever supplies this, the same
+# way extraction.resolver binds it.
+Verify = Callable[[str], bool]
+
+
+def form_of(fix_type: FixType) -> Form:
+    """Which contract form a fix type produces."""
+    found = FORMS.get(fix_type)
+    if found is None:
+        raise DispatchError(f"no contract form is defined for {fix_type.value}")
+    return found
+
+
+def as_fix(payload: Instruction | Delegation) -> Fix:
+    """Wrap a rendered contract from 3.2, 3.3 or 3.4 for transport.
+
+    The fix type is taken from the frozen store rather than from which dataclass
+    arrived. STATIC and DYNAMIC-PARAMETRIC both render an Instruction, so the
+    class alone cannot tell them apart, and rules.py is the source of truth for
+    the distinction in any case.
+    """
+    if not isinstance(payload, (Instruction, Delegation)):
+        raise DispatchError(f"{type(payload).__name__} is not a fix contract")
+    rule = get_rule(payload.rule_id)
+    if rule is None:
+        raise DispatchError(f"{payload.rule_id} is not a rule in the store")
+    return Fix(rule.rule_id, rule.fix_type, form_of(rule.fix_type), payload.to_dict())
+
+
+def instruct(root: str | Path, issue: RuleResult) -> Fix:
+    """Render the contract for one issue in the form its fix type requires.
+
+    Routing only. The content comes from 3.2, 3.3 or 3.4 unchanged. Kept at
+    module level because producing a contract needs neither seam, so the MCP
+    tool that only hands one out does not have to hold an agent or a verifier
+    it would never call.
+    """
+    fix_type = issue.rule.fix_type
+    if fix_type is FixType.STATIC:
+        return as_fix(templates.render(issue))
+    if fix_type is FixType.DYNAMIC_PARAMETRIC:
+        return as_fix(extraction.render(extraction.load(root), issue))
+    if fix_type is FixType.DYNAMIC_DELEGATED:
+        return as_fix(constraints.render(issue))
+    raise DispatchError(f"{issue.rule_id} has no resolver for {fix_type.value}")
+
+
+def failing(report: Report, rule_id: str) -> RuleResult:
+    """The failing issue for one rule in an audit report.
+
+    Raises when the rule is not failing, since handing back an issue that is
+    already passing would produce a fix for a problem the project does not have.
+    """
+    for issue in report.issues:
+        if issue.rule_id == rule_id:
+            return issue
+    raise DispatchError(f"{rule_id} is not a failing rule in this audit")
+
+
+class Fixer:
+    """Routes issues to the resolver that owns their fix type.
+
+    Holds the three resolvers 3.2, 3.3 and 3.4 already provide and hands each of
+    them the same apply step, so the per fix type behaviour those modules built
+    stays exactly as they built it. This class adds routing and the agent round
+    trip, nothing else.
+    """
+
+    def __init__(self, root: str | Path, agent: Agent, verify: Verify) -> None:
+        if agent is None or verify is None:
+            raise DispatchError("Fixer needs both an agent and a verify step")
+        self.root = Path(root)
+        self.agent = agent
+        self.verify = verify
+        # Two parallel records of the same events, kept side by side so what the
+        # agent said and what the verifier found can be compared directly. The
+        # delegated success rate Section 5.3 asks for is measured from these.
+        self.claims: list[Claim] = []
+        self.verdicts: list[bool] = []
+        self.resolvers = {
+            FixType.STATIC: templates.resolver(self.apply),
+            FixType.DYNAMIC_PARAMETRIC: extraction.resolver(self.apply, self.root),
+            FixType.DYNAMIC_DELEGATED: constraints.resolver(self.apply),
+        }
+
+    def apply(self, payload: Instruction | Delegation) -> bool:
+        """Send one contract to the agent, then return module 3.6's verdict.
+
+        This is the callable 3.2, 3.3 and 3.4 each expect. The agent's claim is
+        recorded and then set aside: the boolean returned is the verifier's,
+        whatever the agent reported. A claim of failure is verified too, since
+        an untrusted report is untrusted in both directions.
+        """
+        fix = as_fix(payload)
+        claim = self.agent(fix)
+        self.claims.append(claim)
+        verdict = self.verify(fix.rule_id)
+        self.verdicts.append(verdict)
+        logger.info(
+            "%s: agent claims applied=%s, verifier says passes=%s",
+            fix.rule_id,
+            claim.applied,
+            verdict,
+        )
+        return verdict
+
+    def instruct(self, issue: RuleResult) -> Fix:
+        """The module level instruct, bound to this run's project root."""
+        return instruct(self.root, issue)
+
+    def resolve(self, issue: RuleResult, attempt: int):
+        """The resolve step the 3.1 controller calls, routed by fix type."""
+        from prodpilot.loop import Outcome, Step
+
+        pick = self.resolvers.get(issue.rule.fix_type)
+        if pick is None:
+            return Step(
+                Outcome.BLOCKED,
+                f"{issue.rule_id} has no resolver for {issue.rule.fix_type.value}",
+            )
+        return pick(issue, attempt)
