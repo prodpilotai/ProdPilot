@@ -5,8 +5,9 @@ contract for one fix type. This module decides which of them owns a given issue,
 carries the contract out to the IDE agent over MCP, and takes the agent's answer
 back. It produces no fix content of its own.
 
-It is not module 3.6. The verdict on whether a fix actually worked is not
-computed here and is not defaulted to anything. See the seam section below.
+It is not module 3.6. The verdict on whether a fix actually worked is computed
+by verify.py, which re-runs the rule's own checker, and arrives here through the
+seam described below. Nothing here computes it and nothing here defaults it.
 
 How dispatch is decided
 -----------------------
@@ -29,18 +30,18 @@ agent is the MCP side. It carries one contract to the IDE agent and returns what
 the agent says it did. That answer is a Claim, and the name is the point: it is
 a self-report and it is recorded, never believed.
 
-verify is module 3.6. Given a rule id it re-runs that rule's checker against the
-project and answers whether the rule passes now. Nothing in this module can
-answer that question, so nothing here tries.
+verify is module 3.6, verify.Verifier in practice. Given a rule id it re-runs
+that rule's checker against the project on disk and answers whether the rule
+passes now. Nothing in this module can answer that question, so nothing here
+tries.
 
 Why verify has no default
 -------------------------
 Section 5.3 states that agent self-report is never trusted, and 3.6 is the one
-mechanism the whole system depends on for correctness. A default would make the
-absence of verification invisible: the loop would report RESOLVED and no test
-would fail. So Fixer requires verify, and the MCP tool that reports an applied
-fix answers with an explicit error when no verify is wired rather than with an
-outcome. An unwired verification is a loud failure here, not a quiet pass.
+mechanism the whole system depends on for correctness. A default would make a
+missing verifier invisible: the loop would report RESOLVED and no test would
+fail. So Fixer requires one and raises without it, which keeps a wrong wiring a
+loud failure rather than a quiet pass.
 """
 
 from __future__ import annotations
@@ -123,8 +124,8 @@ class Claim:
 Agent = Callable[[Fix], Claim]
 
 # Module 3.6: given a rule id, re-run that rule's checker and answer whether the
-# rule passes now. The project root is bound by whoever supplies this, the same
-# way extraction.resolver binds it.
+# rule passes now. verify.verifier(root) builds one bound to a project, the same
+# way extraction.resolver binds a root.
 Verify = Callable[[str], bool]
 
 
@@ -180,6 +181,27 @@ def failing(report: Report, rule_id: str) -> RuleResult:
         if issue.rule_id == rule_id:
             return issue
     raise DispatchError(f"{rule_id} is not a failing rule in this audit")
+
+
+def outcome_of(result):
+    """Turn one verification verdict into the outcome the loop speaks.
+
+    Kept here rather than in verify.py so the loop vocabulary stays on this
+    side of the seam, and kept in one place so the in process loop and the MCP
+    report tool can never drift into reading the same verdict differently.
+
+    A verdict of SKIPPED means the rule could not be evaluated against this
+    project at all, which no number of retries would change, so it blocks
+    rather than spending the budget.
+    """
+    from prodpilot.findings import Status
+    from prodpilot.loop import Outcome, Step
+
+    if result.passed:
+        return Step(Outcome.RESOLVED, result.reason)
+    if result.status is Status.SKIPPED:
+        return Step(Outcome.BLOCKED, result.reason)
+    return Step(Outcome.UNRESOLVED, result.reason)
 
 
 class Fixer:

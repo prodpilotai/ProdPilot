@@ -4,56 +4,43 @@ Same approach as the 1.1 and 1.2 transport tests. The server is spawned as a
 subprocess speaking JSON-RPC over stdio and driven through a real client
 session, so what is proven here is what an IDE agent would actually get back.
 
-Two servers are used, on purpose.
-
-The first is the one the CLI launches, with no verifier, because module 3.6 does
-not exist. It has to refuse to give an outcome. That refusal is the evidence
-that nothing was stubbed true to make the wiring look finished.
-
-The second is tests/wired_server.py, which fills the 3.6 seam with a double
-whose answers a test controls through the environment. It proves the whole path
-carries a refusal as faithfully as a success, over the real transport.
+One server is used, the one the CLI launches, with the real module 3.6 verifier
+behind it. Nothing stands in for verification anywhere in this file: an outcome
+here comes from the rule's own checker being run again over the files on disk,
+which is why the tests can point the tool at a fixed project and a broken one
+and expect opposite answers.
 """
 
 from __future__ import annotations
 
 import json
-import os
+import shutil
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
+from apply import write
+from prodpilot.dispatch import Fix, Form
+from prodpilot.rules import FixType
 from prodpilot.server import (
     DETECT_STACK_TOOL_NAME,
     FIX_APPLIED_TOOL_NAME,
     FIX_INSTRUCTION_TOOL_NAME,
     PING_TOOL_NAME,
 )
-from wired_server import PASSING
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = Path(__file__).resolve().parent / "samples"
 INSECURE = str(SAMPLES / "node_express_insecure")
 
 
 def server_parameters() -> StdioServerParameters:
-    """The server as an MCP client starts it, with no verifier wired."""
+    """The server exactly as an MCP client starts it."""
     return StdioServerParameters(
         command=sys.executable,
         args=["-m", "prodpilot", "serve"],
         cwd=str(REPO_ROOT),
-    )
-
-
-def wired_parameters(passing: str = "") -> StdioServerParameters:
-    """The same server with the 3.6 seam filled by the test double."""
-    return StdioServerParameters(
-        command=sys.executable,
-        args=[str(Path(__file__).parent / "wired_server.py")],
-        cwd=str(REPO_ROOT),
-        env={**os.environ, PASSING: passing},
     )
 
 
@@ -79,11 +66,12 @@ async def ask(client, rule_id: str, project_path: str = INSECURE) -> dict:
     return payload_of(result)
 
 
-async def report(client, rule_id: str, applied: bool = True, **extra) -> dict:
+async def report(client, rule_id: str, applied: bool = True,
+                 project_path: str = INSECURE, **extra) -> dict:
     result = await client.call_tool(
         FIX_APPLIED_TOOL_NAME,
         {
-            "project_path": INSECURE,
+            "project_path": project_path,
             "rule_id": rule_id,
             "applied": applied,
             "summary": "edited the file as instructed",
@@ -230,117 +218,119 @@ async def test_a_bad_path_returns_a_structured_error_not_a_crash() -> None:
 
 
 # --------------------------------------------------------------------------
-# the agent's report is not an outcome
+# the outcome comes from the checker, not from the report
 # --------------------------------------------------------------------------
 
 
-async def test_the_shipped_server_gives_no_outcome_because_3_6_is_not_built() -> None:
+async def test_a_false_claim_of_success_is_not_resolved_over_stdio() -> None:
     """The single most important assertion in this file.
 
-    Nothing was stubbed true to make the wiring look complete. With no verifier
-    the tool says so and returns no outcome, even though the agent reported a
-    successful fix.
+    The project is untouched and the rule still fails. The agent says it fixed
+    it. The tool runs the rule's own checker and answers unresolved.
     """
     async with connected_session() as client:
-        payload = await report(client, "SEC-002", applied=True)
-
-        assert payload["ok"] is False
-        assert payload["outcome"] is None
-        assert payload["verified"] is None
-        assert "verification is not wired" in payload["error"]
-        assert payload["claim"]["applied"] is True
-
-
-async def test_the_unverified_answer_never_says_resolved() -> None:
-    async with connected_session() as client:
-        for rule_id in ("SEC-002", "BLD-001", "STR-001"):
-            payload = await report(client, rule_id, applied=True)
-
-            assert payload["outcome"] != "resolved", rule_id
-
-
-# --------------------------------------------------------------------------
-# the full path, with the 3.6 seam filled by a double
-# --------------------------------------------------------------------------
-
-
-async def test_a_verified_pass_resolves_over_stdio() -> None:
-    async with connected_session(wired_parameters("SEC-002")) as client:
-        payload = await report(client, "SEC-002", applied=True)
-
-        assert payload["ok"] is True
-        assert payload["outcome"] == "resolved"
-        assert payload["verified"] is True
-        assert payload["rule_id"] == "SEC-002"
-
-
-async def test_a_claim_of_success_the_verifier_rejects_is_not_resolved() -> None:
-    """Section 5.3 over the real transport: the claim loses to the checker."""
-    async with connected_session(wired_parameters("")) as client:
         payload = await report(client, "SEC-002", applied=True)
 
         assert payload["ok"] is True
         assert payload["claim"]["applied"] is True
         assert payload["verified"] is False
         assert payload["outcome"] == "unresolved"
+        assert "helmet" in payload["verdict"]["reason"]
 
 
-async def test_a_claim_of_failure_the_verifier_accepts_is_resolved() -> None:
-    """The other direction, so the claim is ignored rather than inverted."""
-    async with connected_session(wired_parameters("SEC-002")) as client:
-        payload = await report(client, "SEC-002", applied=False)
+async def test_a_false_claim_of_success_is_rejected_for_all_three_fix_types() -> None:
+    async with connected_session() as client:
+        for rule_id in ("SEC-002", "BLD-001", "STR-001"):
+            payload = await report(client, rule_id, applied=True)
+
+            assert payload["outcome"] == "unresolved", rule_id
+            assert payload["verified"] is False, rule_id
+
+
+async def test_a_rule_that_genuinely_passes_resolves_over_stdio() -> None:
+    """The other direction, so the tool is not simply always refusing."""
+    async with connected_session() as client:
+        payload = await report(
+            client, "SEC-002", applied=True, project_path=str(SAMPLES / "node_express_ready")
+        )
+
+        assert payload["outcome"] == "resolved"
+        assert payload["verified"] is True
+
+
+async def test_a_false_claim_of_failure_does_not_hide_a_real_pass() -> None:
+    async with connected_session() as client:
+        payload = await report(
+            client, "SEC-002", applied=False, project_path=str(SAMPLES / "node_express_ready")
+        )
 
         assert payload["claim"]["applied"] is False
-        assert payload["verified"] is True
         assert payload["outcome"] == "resolved"
 
 
 async def test_the_verifier_answers_per_rule_not_per_call() -> None:
     """One rule passing must not carry another rule to resolved."""
-    async with connected_session(wired_parameters("STR-001")) as client:
-        delegated = await report(client, "STR-001", applied=True)
-        static = await report(client, "SEC-002", applied=True)
+    ready = str(SAMPLES / "node_express_ready")
+    async with connected_session() as client:
+        passing = await report(client, "SEC-002", project_path=ready)
+        failing = await report(client, "OBS-002", project_path=ready)
 
-        assert delegated["outcome"] == "resolved"
-        assert static["outcome"] == "unresolved"
-
-
-async def test_every_fix_type_completes_the_path_over_stdio() -> None:
-    """Issue in, contract out, report back, verified outcome, for all three."""
-    async with connected_session(wired_parameters("SEC-002,BLD-001,STR-001")) as client:
-        for rule_id, form in (
-            ("SEC-002", "content"),
-            ("BLD-001", "content"),
-            ("STR-001", "constraint"),
-        ):
-            fix = (await ask(client, rule_id))["fix"]
-            assert fix["form"] == form, rule_id
-
-            payload = await report(client, rule_id, applied=True)
-            assert payload["outcome"] == "resolved", rule_id
-            assert payload["verified"] is True, rule_id
+        assert passing["outcome"] == "resolved"
+        assert failing["outcome"] == "unresolved"
 
 
-async def test_the_attempt_number_is_carried_back() -> None:
-    async with connected_session(wired_parameters("")) as client:
-        payload = await report(client, "SEC-002", applied=True, attempt=3)
+async def test_a_rule_for_the_other_stack_blocks_rather_than_resolving() -> None:
+    async with connected_session() as client:
+        payload = await report(client, "BLD-007", applied=True)
 
-        assert payload["attempt"] == 3
-        assert payload["outcome"] == "unresolved"
+        assert payload["outcome"] == "blocked"
+        assert payload["verified"] is False
 
 
-async def test_reporting_a_rule_the_project_passes_gives_no_outcome() -> None:
-    async with connected_session(wired_parameters("SEC-002")) as client:
+async def test_an_unknown_rule_gives_no_outcome() -> None:
+    async with connected_session() as client:
         result = await client.call_tool(
             FIX_APPLIED_TOOL_NAME,
-            {
-                "project_path": str(SAMPLES / "node_express_secure"),
-                "rule_id": "SEC-002",
-                "applied": True,
-            },
+            {"project_path": INSECURE, "rule_id": "NOPE-000", "applied": True},
         )
         payload = payload_of(result)
 
         assert payload["ok"] is False
         assert payload["outcome"] is None
-        assert "not a failing rule" in payload["error"]
+        assert payload["verified"] is None
+
+
+async def test_the_attempt_number_is_carried_back() -> None:
+    async with connected_session() as client:
+        payload = await report(client, "SEC-002", applied=True, attempt=3)
+
+        assert payload["attempt"] == 3
+
+
+# --------------------------------------------------------------------------
+# the whole round trip, with a real change on disk
+# --------------------------------------------------------------------------
+
+
+async def test_asking_applying_and_reporting_resolves_a_rule(tmp_path) -> None:
+    """Instruction out, file changed, report back, verified outcome in.
+
+    The change is made by executing the contract exactly as written, which is
+    what an agent holding it would do. The verdict at the end is the rule's own
+    checker reading the file that was just written.
+    """
+    project = tmp_path / "project"
+    shutil.copytree(SAMPLES / "node_express_insecure", project)
+
+    async with connected_session() as client:
+        before = await report(client, "BLD-002", applied=False, project_path=str(project))
+        assert before["outcome"] == "unresolved"
+
+        fix = (await ask(client, "BLD-002", project_path=str(project)))["fix"]
+        write(project, Fix(fix["rule_id"], FixType.STATIC, Form.CONTENT, fix["contract"]))
+
+        after = await report(client, "BLD-002", applied=True, project_path=str(project))
+
+        assert after["outcome"] == "resolved"
+        assert after["verified"] is True
+        assert (project / ".dockerignore").is_file()

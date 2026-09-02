@@ -342,7 +342,7 @@ def render(issue: RuleResult) -> Delegation:
 
 
 # --------------------------------------------------------------------------
-# the integration point module 3.5 will wire
+# the integration point module 3.5 wired
 # --------------------------------------------------------------------------
 
 # 3.5 supplies this: send the delegation to the agent over MCP, let 3.6 re-run

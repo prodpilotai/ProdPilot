@@ -14,11 +14,9 @@ the client. Section 5.3 describes the instruction travelling to the agent and
 the agent applying one atomic change, and over MCP that is the agent asking for
 the instruction and then reporting back, so each direction is its own tool.
 
-Verification is module 3.6 and does not exist yet. build_server takes it as an
-argument with no default: with nothing supplied, the tool that reports an
-applied fix answers with an explicit error instead of an outcome. Section 5.3
-forbids trusting the agent's own report, so an unwired verifier has to be
-visible rather than quietly generous.
+Module 3.6 supplies the verifier. The tool that reports an applied fix builds
+one for the project it was given and answers from what that verifier finds, so
+the agent's own report never decides the outcome.
 """
 
 from __future__ import annotations
@@ -28,12 +26,13 @@ from typing import Any
 
 from mcp.server import MCPServer
 
-from prodpilot import __version__, audit, dispatch
+from prodpilot import __version__, audit, dispatch, verify
 from prodpilot.constraints import ContractError
 from prodpilot.detection import DetectionError, detect_stack
-from prodpilot.dispatch import Claim, DispatchError, Fixer, Verify
+from prodpilot.dispatch import Claim, DispatchError
 from prodpilot.extraction import ExtractError
 from prodpilot.templates import TemplateError
+from prodpilot.verify import VerifyError
 
 logger = logging.getLogger(__name__)
 
@@ -53,35 +52,24 @@ DETECT_STACK_TOOL_NAME = "prodpilot_detect_stack"
 FIX_INSTRUCTION_TOOL_NAME = "prodpilot_fix_instruction"
 FIX_APPLIED_TOOL_NAME = "prodpilot_fix_applied"
 
-# Returned when the agent reports a fix but no verifier is wired. Not an
-# outcome, because this build cannot tell whether the fix worked.
-NO_VERIFIER = (
-    "independent verification is not wired, so no outcome can be given. "
-    "The agent's report alone is never an outcome."
-)
-
 # The fix producing modules each refuse in their own way. All three refusals
 # mean the same thing to a caller: no instruction, and this rule needs a person.
 FIX_ERRORS = (DispatchError, TemplateError, ExtractError, ContractError)
 
 
-def build_server(verify: Verify | None = None) -> MCPServer:
-    """Create the ProdPilot MCP server with its tools registered.
-
-    verify is module 3.6. Passing None leaves the fix report tool unable to
-    give an outcome, which is the honest state of this build.
-    """
+def build_server() -> MCPServer:
+    """Create the ProdPilot MCP server with its tools registered."""
     server = MCPServer(
         name=SERVER_NAME,
         version=__version__,
         instructions=SERVER_INSTRUCTIONS,
     )
-    register_tools(server, verify)
+    register_tools(server)
     logger.info("built MCP server %s version %s", SERVER_NAME, __version__)
     return server
 
 
-def register_tools(server: MCPServer, verify: Verify | None = None) -> None:
+def register_tools(server: MCPServer) -> None:
     """Register the tools this module owns."""
 
     @server.tool(
@@ -208,21 +196,14 @@ def register_tools(server: MCPServer, verify: Verify | None = None) -> None:
         """
         logger.info("%s called for %s in %s", FIX_APPLIED_TOOL_NAME, rule_id, project_path)
         claim = Claim(rule_id=rule_id, applied=applied, summary=summary)
-        if verify is None:
-            logger.warning("%s has no verifier wired", FIX_APPLIED_TOOL_NAME)
-            return {
-                "ok": False,
-                "error": NO_VERIFIER,
-                "outcome": None,
-                "verified": None,
-                "claim": claim.to_dict(),
-            }
 
+        # The agent has already made its change, so there is nothing to send and
+        # nothing to render. The only question left is the one the agent cannot
+        # answer, so the rule's own checker is run again and decides.
         try:
-            report = audit.run(project_path)
-            issue = dispatch.failing(report, rule_id)
-        except (OSError, ValueError, DispatchError) as exc:
-            logger.warning("%s could not read %s: %s", FIX_APPLIED_TOOL_NAME, rule_id, exc)
+            result = verify.check(project_path, rule_id)
+        except VerifyError as exc:
+            logger.warning("%s cannot verify %s: %s", FIX_APPLIED_TOOL_NAME, rule_id, exc)
             return {
                 "ok": False,
                 "error": str(exc),
@@ -231,11 +212,13 @@ def register_tools(server: MCPServer, verify: Verify | None = None) -> None:
                 "claim": claim.to_dict(),
             }
 
-        # The agent has already acted, so the agent seam simply hands back the
-        # report it just sent. Everything after that is the ordinary resolve
-        # step, which renders the contract and then asks the verifier.
-        fixer = Fixer(project_path, lambda fix: claim, verify)
-        step = fixer.resolve(issue, attempt)
+        step = dispatch.outcome_of(result)
+        logger.info(
+            "%s: agent claims applied=%s, checker says %s",
+            rule_id,
+            applied,
+            result.status.value,
+        )
         return {
             "ok": True,
             "error": None,
@@ -243,7 +226,8 @@ def register_tools(server: MCPServer, verify: Verify | None = None) -> None:
             "attempt": attempt,
             "outcome": step.outcome.value,
             "detail": step.detail,
-            "verified": fixer.verdicts[-1] if fixer.verdicts else None,
+            "verified": result.passed,
+            "verdict": result.to_dict(),
             "claim": claim.to_dict(),
         }
 

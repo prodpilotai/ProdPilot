@@ -853,7 +853,7 @@ def render(src: Source, issue: RuleResult) -> Instruction:
 
 
 # --------------------------------------------------------------------------
-# the integration point module 3.5 will wire
+# the integration point module 3.5 wired
 # --------------------------------------------------------------------------
 
 Apply = Callable[[Instruction], bool]
