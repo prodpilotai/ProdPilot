@@ -24,3 +24,6 @@ Thumbs.db
 # the wheel and ship a package that cannot parse anything.
 !src/prodpilot/vendor/node_modules/acorn/dist/
 !src/prodpilot/vendor/**
+
+# Phase 5 dataset. Manifest and cache only, never committed.
+data/
