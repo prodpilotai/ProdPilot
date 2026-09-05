@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from prodpilot import audit, reaudit
-from prodpilot.audit import RuleResult
+from prodpilot.audit import RuleResult, band_of
 from prodpilot.detection import DetectionError
 from prodpilot.loop import CEILING, Loop, Resolve, Review
 from prodpilot.reaudit import Reaudit
@@ -112,11 +112,21 @@ class Decision:
 def reading(result: Reaudit) -> int | None:
     """The score the gate reads.
 
-    The one place the source of the number lives. Module 4.3 changes this to the
-    calibrated probability from the trained model and nothing else moves, which
-    is what the Phased Implementation Plan means by the bands and the behaviour
-    staying the same while only the source changes.
+    The one place the source of the number lives, so module 4.3 is a change here
+    and nowhere else. The threshold comparison, the band and the reason text are
+    all computed from whatever this returns.
     """
+    # Module 4.3 replaces this one return, and the condition for doing so is
+    # Phase 5 module 5.5 existing and loading a real serialised model.
+    #
+    # Today it returns Reaudit.score, the deterministic 0 to 100 score module
+    # 2.4 computes from rule results weighted by priority. It will return the
+    # trained GradientBoostingClassifier's calibrated probability for the same
+    # project, mapped onto the same 0 to 100 range, per Section 6.
+    #
+    # Nothing else moves when it does. The threshold stays 90, the blocker rule
+    # stays, and the band is derived from this return value rather than from the
+    # report, so it follows the new source automatically.
     return result.score
 
 
@@ -183,13 +193,18 @@ def run(
     final = reaudit.after(base, done)
     passed, why = clears(final, threshold)
 
+    # The band is computed from the gate's own reading rather than taken off the
+    # report, so the score and the band always describe the same number. Taking
+    # it off the report would leave a second score source behind, and module 4.3
+    # would then report a calibrated score beside the audit score's band.
+    score = reading(final)
     decision = Decision(
         project=final.project or name,
         ready=passed,
         reason=why,
         threshold=threshold,
-        score=reading(final),
-        band=final.report.band.value if final.ok else None,
+        score=score,
+        band=band_of(score).value if score is not None else None,
         cycles=done.iterations,
         stopped=done.stopped.value,
         resolved=done.resolved,

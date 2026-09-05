@@ -83,12 +83,71 @@ def test_the_score_comes_from_one_place_so_4_3_can_move_it():
     assert gate.reading(result) == result.score == result.report.score
 
 
-def test_no_model_is_referenced_anywhere_in_this_module():
-    """4.2 gates on the raw audit score. The calibrated score is 4.3's."""
-    source = Path(gate.__file__).read_text(encoding="utf-8").lower()
+def test_the_whole_decision_follows_the_one_score_source(monkeypatch, tmp_path: Path):
+    """Module 4.3's claim, tested by moving the seam rather than trusting it.
 
-    for word in ("sklearn", "joblib", "gradientboosting", "predict_proba", "model."):
-        assert word not in source, word
+    The project on disk does not change. Making the gate's single score source
+    report a different number has to move the score, the band and the readiness
+    together. Anything that still reported the old number would be a second
+    source, and 4.3 would then be more than a one line change.
+    """
+    root = copy("react_vite_ready", tmp_path)
+    (root / ".dockerignore").unlink()
+    real = audit.run(root)
+    assert real.score >= THRESHOLD and real.blockers == ()
+
+    monkeypatch.setattr(gate, "reading", lambda result: 50 if result.ok else None)
+    decision = run(root, lambda issue, attempt: Step(Outcome.UNRESOLVED, "left alone"))
+
+    assert decision.score == 50
+    assert decision.band == Band.NEEDS_WORK.value
+    assert decision.ready is False
+    assert "50" in decision.reason
+
+
+def test_the_band_is_not_taken_from_the_report(tmp_path: Path):
+    """The band has to describe the score the gate acted on, not another one."""
+    root = copy("react_vite_ready", tmp_path)
+
+    decision = run(root, fixer_for(root).resolve)
+
+    assert decision.band == band_of(decision.score).value
+
+
+def test_the_blocker_rule_reads_rule_statuses_not_the_score():
+    """So it is unaffected by which source the score comes from.
+
+    Both reports below fail the same P0. The scores differ, and the refusal and
+    its reason do not.
+    """
+    one = clears(rebuilt("react_vite_ready", {"SEC-005"}))
+    two = clears(rebuilt("react_vite_ready", {"SEC-005", "BLD-011", "BLD-012"}))
+
+    assert one[0] is False and two[0] is False
+    assert "SEC-005" in one[1] and "SEC-005" in two[1]
+
+
+def test_no_model_is_used_anywhere_in_this_module():
+    """4.2 gates on the raw audit score. The calibrated score is 4.3's.
+
+    Checked against the parsed module rather than its text, because the comment
+    at reading() names the classifier it will one day read from, and naming a
+    dependency in a comment is not depending on it.
+    """
+    import ast
+
+    tree = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+
+    assert not imported & {"sklearn", "joblib", "numpy", "pandas", "pickle"}
+
+    called = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    assert not called & {"predict", "predict_proba", "fit", "load_model"}
 
 
 def test_the_ceiling_is_the_loop_s_own_not_a_second_one():
