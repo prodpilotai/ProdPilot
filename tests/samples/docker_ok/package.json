@@ -1,0 +1,9 @@
+{
+  "name": "health-probe",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "engines": { "node": ">=20 <21" },
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.19.2" }
+}
