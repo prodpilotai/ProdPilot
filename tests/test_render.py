@@ -557,3 +557,99 @@ def test_no_provider_in_this_file_uses_the_real_transport():
 
     assert made.fetch is api
     assert made.fetch is not render.send
+
+
+# --------------------------------------------------------------------------
+# pinning a commit and tearing a service down, both added for module 5.3
+# --------------------------------------------------------------------------
+
+
+def test_a_deploy_can_be_pinned_to_one_commit():
+    """Module 5.2 extracted its features from a pinned commit, so the label
+    has to describe the same code."""
+    made, api = provider({"/deploys": reply(201, {"id": "dep-pinned"}),
+                          "/owners": reply(200, OWNERS),
+                          "/services": reply(201, CREATED)})
+
+    result = made.deploy_at(Service(
+        name="api", repo="https://github.com/octo/api", branch="main",
+        build="npm install", start="npm start"), "abc123def456")
+
+    assert result.deploy_id == "dep-pinned"
+    assert result.service_id == "srv-abc"
+    assert api.body_of("/deploys") == {"commitId": "abc123def456"}
+
+
+def test_the_pinned_deploy_is_addressed_to_the_new_service():
+    made, api = provider({"/deploys": reply(201, {"id": "dep-pinned"}),
+                          "/owners": reply(200, OWNERS),
+                          "/services": reply(201, CREATED)})
+
+    made.deploy_at(Service(name="api", repo="r", branch="main",
+                           build="b", start="s"), "abc123")
+
+    url = next(u for m, u, _ in api.calls if u.endswith("/deploys"))
+    assert "/services/srv-abc/deploys" in url
+
+
+def test_no_commit_falls_back_to_the_branch_head():
+    """One API call, not two, when there is nothing to pin."""
+    made, api = provider({"/owners": reply(200, OWNERS),
+                          "/services": reply(201, CREATED)})
+
+    result = made.deploy_at(Service(name="api", repo="r", branch="main",
+                                    build="b", start="s"), "")
+
+    assert result.deploy_id == "dep-xyz"
+    assert not any(u.endswith("/deploys") for _, u, _ in api.calls)
+
+
+def test_a_pinned_deploy_with_no_id_is_refused():
+    made, _ = provider({"/deploys": reply(201, {}),
+                        "/owners": reply(200, OWNERS),
+                        "/services": reply(201, CREATED)})
+
+    with pytest.raises(RenderError):
+        made.deploy_at(Service(name="api", repo="r", branch="main",
+                               build="b", start="s"), "abc123")
+
+
+def test_a_commit_render_does_not_know_carries_render_s_own_words():
+    made, _ = provider({"/deploys": reply(400, {"message": "commit not found"}),
+                        "/owners": reply(200, OWNERS),
+                        "/services": reply(201, CREATED)})
+
+    with pytest.raises(RenderError) as caught:
+        made.deploy_at(Service(name="api", repo="r", branch="main",
+                               build="b", start="s"), "deadbeef")
+
+    assert "commit not found" in str(caught.value)
+
+
+def test_a_service_can_be_deleted():
+    """Module 5.3 creates one service per labelled repository and must leave
+    none of them running."""
+    made, api = provider({"/owners": reply(200, OWNERS),
+                          "/services/srv-abc": Reply(204, b"")})
+
+    made.remove("srv-abc")
+
+    method, url, _ = next((m, u, b) for m, u, b in api.calls if "srv-abc" in u)
+    assert method == "DELETE"
+    assert url.endswith("/services/srv-abc")
+
+
+def test_a_delete_that_render_refuses_raises():
+    made, _ = provider({"/services/srv-gone": reply(404, {"message": "Not Found"})})
+
+    with pytest.raises(RenderError) as caught:
+        made.remove("srv-gone")
+
+    assert "Not Found" in str(caught.value)
+
+
+def test_deleting_answers_204_with_no_body():
+    """The shape Render documents, which json must not choke on."""
+    made, _ = provider({"/services/srv-abc": Reply(204, b"")})
+
+    assert made.remove("srv-abc") is None

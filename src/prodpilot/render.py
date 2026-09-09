@@ -98,6 +98,12 @@ class Reply:
     body: bytes
 
     def json(self):
+        # An empty body is a real answer, not a broken one. Deleting a service
+        # answers 204 with nothing in it, which is the documented shape, so
+        # treating that as invalid JSON would make teardown fail on success.
+        # This is the same rule module 6.8's Reply already follows.
+        if not self.body:
+            return None
         try:
             return json.loads(self.body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -227,6 +233,43 @@ class Render:
         body = [{"key": k, "value": v} for k, v in sorted(env.items())]
         self.call(f"/services/{service_id}/env-vars", method="PUT", body=body)
         logger.info("replaced %s environment value(s) on %s", len(body), service_id)
+
+    # ------------------------------------------------------- added for 5.3
+
+    def deploy_at(self, service: Service, commit: str) -> Deployment:
+        """Create the service and deploy one exact commit rather than the head.
+
+        Module 5.3 needs this. Its features were extracted from a pinned commit,
+        so a label taken from whatever the branch points at today would describe
+        different code and the join between the two would be wrong.
+
+        Render's create call carries no commit field. Its reference puts commit
+        selection on the trigger deploy call instead, as commitId, so the
+        service is created first and then told which commit to build. An empty
+        commit falls back to deploy, which is the branch head.
+        """
+        made = self.deploy(service)
+        if not commit:
+            return made
+
+        found = self.call(f"/services/{made.service_id}/deploys",
+                          method="POST", body={"commitId": commit})
+        pinned = (found or {}).get("id") if isinstance(found, dict) else None
+        if not pinned:
+            raise RenderError(f"the deploy pinned to {commit[:10]} carried no id")
+
+        logger.info("deploying %s at commit %s", made.service_id, commit[:10])
+        return Deployment(made.service_id, str(pinned), made.url)
+
+    def remove(self, service_id: str) -> None:
+        """Delete a service permanently.
+
+        Module 5.3 creates a service per labelled repository and has to leave
+        none of them running, so teardown is part of the provider rather than
+        something a caller improvises. Render answers 204 with no body.
+        """
+        self.call(f"/services/{service_id}", method="DELETE")
+        logger.info("deleted Render service %s", service_id)
 
     # ---------------------------------------------------------------- 6.6
 

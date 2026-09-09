@@ -358,10 +358,41 @@ def test_no_secret_reached_the_repository(project):
         assert "Wq3Nz8Rt5Vx1Lp7Kb" not in blob, name
 
 
+# The sample's own Dockerfile runs npm ci, which needs a package-lock.json the
+# sample does not carry, and installing from the registry would make this test
+# depend on a network. Stage 3 is about building a real image, running a real
+# container and probing a real port, not about npm, so the build is made
+# dependency free the same way module 6.3's own Docker tests are. EXPOSE has to
+# agree with the PORT stage 2 sealed, or module 6.3 correctly reports the port
+# mismatch instead of a healthy container.
+BUILDABLE = """FROM node:20-alpine
+WORKDIR /app
+COPY src ./src
+USER node
+EXPOSE 10000
+CMD ["node", "src/server.js"]
+"""
+
+SERVER = """const http = require("http");
+
+const port = process.env.PORT || 3000;
+
+http
+  .createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok" }));
+  })
+  .listen(port, () => console.log("listening on " + port));
+"""
+
+
 @needs_docker
 def test_stage_three_joins_the_chain_when_a_daemon_is_present(project):
     """Module 6.3 for real: a real image, a real container, a real probe."""
     root, mirror = project
+    (root / "Dockerfile").write_text(BUILDABLE, encoding="utf-8")
+    (root / "src" / "server.js").write_text(SERVER, encoding="utf-8")
+
     sealed = sealing.run(root)
     assert sealed.ok is True
 
@@ -370,3 +401,22 @@ def test_stage_three_joins_the_chain_when_a_daemon_is_present(project):
 
     assert built.ok is True, built.summary()
     assert built.health is not None and built.health.ok is True
+    # The container answered on the port stage 2 sealed, not on a default.
+    assert built.health.url.endswith("/health")
+
+
+@needs_docker
+def test_a_port_the_container_does_not_expose_is_caught(project):
+    """The one fault module 6.3 can only see at run time, on a real container."""
+    root, mirror = project
+    (root / "Dockerfile").write_text(
+        BUILDABLE.replace("EXPOSE 10000", "EXPOSE 3000"), encoding="utf-8")
+    (root / "src" / "server.js").write_text(SERVER, encoding="utf-8")
+
+    built = buildtest.run(root, env={"PORT": "10000"})
+
+    # The image builds. It is the running container that is wrong, which is the
+    # distinction module 6.3 draws between ok and health.
+    assert built.ok is True
+    assert built.health is not None and built.health.ok is False
+    assert built.fault is buildtest.Fault.PORT
