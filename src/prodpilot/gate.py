@@ -56,11 +56,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from prodpilot import audit, reaudit
+from prodpilot import audit, reaudit, scoring
 from prodpilot.audit import RuleResult, band_of
 from prodpilot.detection import DetectionError
+from prodpilot.features import FeatureError
 from prodpilot.loop import CEILING, Loop, Resolve, Review
 from prodpilot.reaudit import Reaudit
+from prodpilot.scoring import ScoreError
 
 logger = logging.getLogger(__name__)
 
@@ -115,19 +117,28 @@ def reading(result: Reaudit) -> int | None:
     The one place the source of the number lives, so module 4.3 is a change here
     and nowhere else. The threshold comparison, the band and the reason text are
     all computed from whatever this returns.
+
+    Module 4.3, done. This returns the trained GradientBoostingClassifier's
+    calibrated probability for the project, mapped onto the same 0 to 100 range,
+    through module 5.5. It no longer returns Reaudit.score, the audit engine's
+    own priority weighted number.
+
+    Nothing else moved. The threshold is still 90, the blocker rule still
+    stands, and the band is still derived from this return value rather than
+    from the report, so it followed the new source without being touched.
+
+    A model that cannot be loaded produces no score rather than falling back to
+    the audit engine's. The two numbers mean different things, so reporting one
+    as the other would be a lie a reader could not detect. No score means the
+    gate stays shut, which is the behaviour module 4.2 already built.
     """
-    # Module 4.3 replaces this one return, and the condition for doing so is
-    # Phase 5 module 5.5 existing and loading a real serialised model.
-    #
-    # Today it returns Reaudit.score, the deterministic 0 to 100 score module
-    # 2.4 computes from rule results weighted by priority. It will return the
-    # trained GradientBoostingClassifier's calibrated probability for the same
-    # project, mapped onto the same 0 to 100 range, per Section 6.
-    #
-    # Nothing else moves when it does. The threshold stays 90, the blocker rule
-    # stays, and the band is derived from this return value rather than from the
-    # report, so it follows the new source automatically.
-    return result.score
+    if result.report is None:
+        return None
+    try:
+        return scoring.score(result.report)
+    except (ScoreError, FeatureError) as exc:
+        logger.error("no calibrated score for %s: %s", result.project, exc)
+        return None
 
 
 def clears(result: Reaudit, threshold: int = THRESHOLD) -> tuple[bool, str]:
@@ -147,7 +158,13 @@ def clears(result: Reaudit, threshold: int = THRESHOLD) -> tuple[bool, str]:
             f"score {score} but {len(blockers)} critical rule(s) still fail: "
             f"{', '.join(blockers)}"
         )
-    if score is None or score < threshold:
+    if score is None:
+        # Module 5.5 could not produce a calibrated score. The gate stays shut
+        # rather than reaching for the audit engine's number, which measures
+        # something else.
+        return False, ("no calibrated score could be produced, so the gate "
+                       "stays shut. See the log for why")
+    if score < threshold:
         return False, f"score {score} is below the threshold of {threshold}"
     return True, f"score {score} meets the threshold of {threshold} with no critical failures"
 
