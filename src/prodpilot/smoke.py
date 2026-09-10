@@ -207,14 +207,19 @@ def waits(window: float) -> list[float]:
 
 def probe(fetch: Fetch, base: str, window: float = WINDOW,
           sleep: Callable[[float], None] = time.sleep,
-          clock: Callable[[], float] = time.monotonic
-          ) -> tuple[Probe, Answer | None, int, float]:
-    """Retry /health with backoff until it answers or the window closes.
+          clock: Callable[[], float] = time.monotonic,
+          path: str = HEALTH) -> tuple[Probe, Answer | None, int, float]:
+    """Retry the health path with backoff until it answers or the window closes.
 
     A cold free tier service can take most of a minute to wake, so a single
     request would fail a deployment that is merely asleep.
+
+    path is /health for a service that runs, which is what Section 7 specifies
+    and what module 2.2's OBS-001 requires of an Express project. A built front
+    end has no such route and serves its application at the root instead, so a
+    caller deploying one passes that root. The default is unchanged.
     """
-    url = base.rstrip("/") + HEALTH
+    url = base.rstrip("/") + path
     started = clock()
     schedule = waits(window)
     attempts = 0
@@ -304,13 +309,15 @@ def traces(answers: list[Answer]) -> Probe:
 
 def run(url: str, fetch: Fetch = send, window: float = WINDOW,
         sleep: Callable[[float], None] = time.sleep,
-        clock: Callable[[], float] = time.monotonic) -> Smoke:
+        clock: Callable[[], float] = time.monotonic,
+        health: str = HEALTH) -> Smoke:
     """Run all five checks against a live deployment.
 
     Never raises. A service that cannot be reached is a failed health check, not
     an exception, so a caller always gets a report it can show a developer.
     """
-    health, first, attempts, waited = probe(fetch, url, window, sleep, clock)
+    health, first, attempts, waited = probe(fetch, url, window, sleep,
+                                            clock, health)
     answers: list[Answer] = [a for a in (first,) if a is not None]
 
     if not health.ok:

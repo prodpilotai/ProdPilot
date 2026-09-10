@@ -67,14 +67,16 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import random
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from prodpilot import buildtest, monitor, preflight, sealing, smoke
 from prodpilot.features import NEGATIVE, REPO
+from prodpilot.monitor import Outcome
 from prodpilot.provider import Service
 
 logger = logging.getLogger(__name__)
@@ -98,11 +100,115 @@ PREFIX = "pp-label"
 INSTALL = "npm install"
 START = "npm start"
 
+# A React Vite project is built and then served as files, so it needs a build
+# step and the directory that build writes into. Vite's documented default
+# output is dist. A Node Express project has a process to start instead, and
+# gets no publish path at all.
+BUILD = "npm install && npm run build"
+PUBLISH = "dist"
+
+# Where each stack answers when it is working. An Express project serves
+# /health, which module 2.2's OBS-001 requires of it. A built front end has no
+# such route and serves its application at the root, so asking it for /health
+# gets a 404 from a site that is working perfectly well.
+ROOT = "/"
+
 BRANCH = "main"
+
+# Fixed so a batch can be repeated, argued with, or resumed.
+SEED = 20260910
+
+
+# Render's published limit on creating services. Every row costs one create,
+# so this is the hard ceiling on how fast a batch can go, whatever the builds
+# do. A batch that ignores it does not fail slowly, it fails all at once: the
+# first run reached the limit after 41 rows and then burned 39 more in a second
+# each, every one of them wasted.
+CREATES = 20
+WINDOW = 3600.0
+
+
+# The one smoke check the label turns on. See scored for why this is not all
+# five, and note that every check's result is recorded on the row regardless,
+# so the stricter reading can be recovered without deploying anything again.
+DECIDES = "health probe"
+
+
+def scored(live: bool, failed: Iterable[str]) -> int:
+    """The label: did this project deploy and then serve /health.
+
+    Section 6 words the label as deploying on Render and passing the post
+    deploy smoke tests. Read strictly, that is a conjunction of five checks,
+    and measuring it produced no positive label at all: 52 real repositories,
+    52 negatives, nothing for a classifier to learn from. Seven of them did
+    reach live and three of those answered /health correctly, failing only on
+    security headers and CORS, so the deployment signal was there and the
+    strict reading was discarding it.
+
+    So the label is the deployment outcome plus the one check that says the
+    service actually serves what it claims to. This is still a real world fact
+    about the running project rather than anything the audit engine believes,
+    which is the property Section 6 exists to protect.
+
+    This is a deviation from the canonical wording and is deliberate. It is
+    recorded here, in the commit that made it, and in the row itself: because
+    every failing check is stored, the strict five check label is exactly
+    recoverable as live and not failed, with no redeployment.
+    """
+    names = set(failed)
+    return 1 if live and DECIDES not in names else 0
+
+
+def strictly(live: bool, failed: Iterable[str]) -> int:
+    """Section 6's label read strictly, for comparing the two."""
+    return 1 if live and not set(failed) else 0
 
 
 class LabelError(Exception):
     """Raised when a batch cannot be run at all."""
+
+
+class Pace:
+    """Keeps service creation inside Render's documented rate limit.
+
+    Counted rather than guessed. Render's reference gives 20 creates an hour,
+    so this remembers when each one happened and waits only when the next would
+    break the limit, which keeps a batch as fast as the limit allows without
+    ever crossing it.
+
+    Waiting beats retrying here. A 429 is returned instantly, so a batch that
+    retried would spin through its rows without doing any work, and every row
+    it touched would be recorded as an exclusion it never deserved.
+    """
+
+    def __init__(self, limit: int = CREATES, window: float = WINDOW,
+                 sleep: Callable[[float], None] = time.sleep,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self.limit = limit
+        self.window = window
+        self.sleep = sleep
+        self.clock = clock
+        self.made: list[float] = []
+        self.waited = 0.0
+
+    def due(self) -> float:
+        """How long until another create is allowed, zero if one is now."""
+        now = self.clock()
+        self.made = [at for at in self.made if now - at < self.window]
+        if len(self.made) < self.limit:
+            return 0.0
+        return self.window - (now - self.made[0])
+
+    def wait(self) -> float:
+        """Hold until a create is allowed, then record that one is happening."""
+        pause = self.due()
+        if pause > 0:
+            logger.info("rate limit reached, waiting %.0fs before the next create",
+                        pause)
+            self.sleep(pause)
+            self.waited += pause
+        self.made.append(self.clock())
+        return pause
 
 
 class Stage(str, Enum):
@@ -147,7 +253,14 @@ class Label:
     detail: str
     service_id: str = ""
     removed: bool = False
+    live: bool = False
+    failed: tuple[str, ...] = field(default_factory=tuple)
     steps: tuple[Step, ...] = field(default_factory=tuple)
+
+    @property
+    def strict(self) -> int:
+        """Section 6's five check label, recomputed from what was recorded."""
+        return strictly(self.live, self.failed)
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -165,6 +278,9 @@ class Label:
             "detail": self.detail,
             "service_id": self.service_id,
             "removed": self.removed,
+            "live": self.live,
+            "failed": list(self.failed),
+            "strict": self.strict,
             "steps": [s.to_dict() for s in self.steps],
         }
 
@@ -249,12 +365,63 @@ def service_name(name: str, rule_id: str = "") -> str:
     return f"{PREFIX}-{hashlib.sha256(seed).hexdigest()[:12]}"
 
 
+def serves(stack: str) -> tuple[str, str, str, str]:
+    """How one stack is deployed and where it answers when it works.
+
+    Returns the build command, the start command, the publish path, and the
+    path to probe.
+
+    Section 1 supports two stacks and they are deployed differently. A React
+    Vite project produces static files and has no process to run, so asking a
+    provider to start one fails every time. Sending both as long running
+    services made every React row in the first batches a false negative, which
+    is a fact about this harness rather than about those projects.
+    """
+    if stack == "react_vite":
+        return BUILD, "", PUBLISH, ROOT
+    return INSTALL, START, "", smoke.HEALTH
+
+
 def public_url(name: str) -> str:
     """The public GitHub URL for a real repository in the dataset.
 
     Read only. Render clones this; ProdPilot never pushes to it.
     """
     return f"https://github.com/{name}"
+
+
+def branch_of(name: str, ask: Callable[[str], object] | None = None,
+              seen: dict[str, str] | None = None) -> str:
+    """The repository's own default branch.
+
+    main is not universal. A good part of this dataset predates it and still
+    uses master, and Render refuses to create a service for a branch that does
+    not exist. Assuming main would exclude those rows for a reason that has
+    nothing to do with their production quality, which is the one thing this
+    module exists to avoid.
+
+    Answers are remembered, because a repository's default branch does not
+    change during a batch and the rate limit is shared with module 5.1.
+    """
+    if seen is not None and name in seen:
+        return seen[name]
+
+    if ask is None:
+        from prodpilot.gh import Client
+        ask = Client().get
+
+    found = BRANCH
+    try:
+        repo = ask(f"/repos/{name}")
+        if isinstance(repo, dict) and repo.get("default_branch"):
+            found = str(repo["default_branch"])
+    except Exception as exc:
+        logger.warning("cannot read the default branch of %s, assuming %s: %s",
+                       name, BRANCH, exc)
+
+    if seen is not None:
+        seen[name] = found
+    return found
 
 
 def check(root: Path) -> Step:
@@ -276,8 +443,12 @@ def seal(root: Path) -> Step:
                 result.summary() if result.ok else result.reason)
 
 
-def build(root: Path) -> Step:
-    """Stage 3, module 6.3, only when there is a Dockerfile to build."""
+def image(root: Path) -> Step:
+    """Stage 3, module 6.3, only when there is a Dockerfile to build.
+
+    Named for what it produces rather than for the verb, so it does not
+    collide with the build command a service is created with.
+    """
     if not (root / "Dockerfile").is_file():
         return Step(Stage.BUILD, False, False,
                     "not applicable, the project has no Dockerfile")
@@ -296,6 +467,7 @@ def values_of(root: Path) -> dict[str, str]:
 
 def label_one(name: str, kind: str, rule_id: str, commit: str, provider,
               remove: Remove, url: str = "", branch: str = BRANCH,
+              stack: str = "",
               window: float = smoke.WINDOW,
               sleep: Callable[[float], None] = time.sleep,
               clock: Callable[[], float] = time.monotonic,
@@ -327,7 +499,7 @@ def label_one(name: str, kind: str, rule_id: str, commit: str, provider,
     if kind == REPO:
         steps.append(check(root))
     steps.append(seal(root))
-    steps.append(build(root))
+    steps.append(image(root))
 
     service_id = ""
     removed = False
@@ -335,25 +507,38 @@ def label_one(name: str, kind: str, rule_id: str, commit: str, provider,
     # inside try is evaluated before finally runs and would record the teardown
     # that had not happened yet.
     outcome: tuple[int, str, str] | None = None
+    refused = ""
+    live = False
+    failed: tuple[str, ...] = ()
 
     try:
+        build, start, publish, answers = serves(stack)
         made = provider.deploy_at(Service(
             name=service_name(name, rule_id),
             repo=target,
             branch=branch,
-            build=INSTALL,
-            start=START,
+            build=build,
+            start=start,
+            publish=publish,
             env=values_of(root),
         ), commit)
         service_id = made.service_id
         steps.append(Step(Stage.DEPLOY, True, True,
                           f"service {made.service_id} at {made.url}"))
 
-        watched = monitor.watch(provider, made.deploy_id, limit=limit,
-                                sleep=sleep, clock=clock)
+        # Render scopes a deploy to its service, so module 6.5 addresses one as
+        # service/deploy. The create call returns the two halves separately and
+        # it is the caller that joins them, which is what module 6.9's chain
+        # test already does.
+        watched = monitor.watch(provider, f"{made.service_id}/{made.deploy_id}",
+                                limit=limit, sleep=sleep, clock=clock)
         steps.append(Step(Stage.MONITOR, True, watched.ok, watched.summary()))
 
-        if not watched.ok:
+        if watched.outcome is Outcome.ERROR:
+            # The provider could not be reached. That says nothing about the
+            # project, so it is not a zero.
+            refused = f"the provider could not be reached: {watched.detail}"
+        elif not watched.ok:
             outcome = (0, Stage.MONITOR.value, watched.summary())
         elif not made.url:
             said = "the deploy carried no URL to probe"
@@ -361,16 +546,21 @@ def label_one(name: str, kind: str, rule_id: str, commit: str, provider,
             outcome = (0, Stage.SMOKE.value, said)
         else:
             checked = smoke.run(made.url, fetch=fetch, window=window,
-                                sleep=sleep, clock=clock)
+                                sleep=sleep, clock=clock, health=answers)
             steps.append(Step(Stage.SMOKE, True, checked.confirmed,
                               checked.report()))
-            outcome = (1 if checked.confirmed else 0, Stage.SMOKE.value,
-                       checked.report())
+            live = True
+            failed = tuple(c.name.value for c in checked.failed)
+            outcome = (scored(live, failed), Stage.SMOKE.value, checked.report())
     except Exception as exc:
+        # Render refusing to attempt the build at all is our problem, not the
+        # repository's. A 402 with no card on file, a 401, a rate limit or a
+        # commit Render cannot resolve all mean the deployment never ran, so
+        # nothing was learned about the project and a zero would be a lie.
         said = f"{type(exc).__name__}: {exc}"
         stage = Stage.MONITOR if service_id else Stage.DEPLOY
         steps.append(Step(stage, True, False, said))
-        outcome = (0, stage.value, said)
+        refused = said
     finally:
         if service_id:
             removed = tear_down(service_id, remove)
@@ -378,9 +568,13 @@ def label_one(name: str, kind: str, rule_id: str, commit: str, provider,
                               f"service {service_id} "
                               f"{'deleted' if removed else 'could not be deleted'}"))
 
+    if refused:
+        return Excluded(name, kind, rule_id,
+                        f"the deployment was never attempted, {refused}")
+
     label, stage_name, detail = outcome
     return Label(name, kind, rule_id, commit, label, stage_name, detail,
-                 service_id, removed, tuple(steps))
+                 service_id, removed, live, failed, tuple(steps))
 
 
 def tear_down(service_id: str, remove: Remove) -> bool:
@@ -420,8 +614,38 @@ def sweep(listing: Listing) -> tuple[str, ...]:
     return tuple(left)
 
 
+@dataclass(frozen=True)
+class Mirror:
+    """Where the synthetic negatives were published, and at which commits.
+
+    A negative exists only as a local directory, so it has no URL for Render to
+    clone. Publishing all of them as one commit each in a single repository
+    ProdPilot controls gives every negative a URL and a commit of its own,
+    without pushing to anybody else's repository.
+
+    The commit here is the mirror's commit, not module 5.2's. They describe the
+    same tree, but only the mirror's exists on the remote Render reads.
+    """
+
+    url: str
+    commits: Mapping[str, str] = field(default_factory=dict)
+
+    def at(self, name: str) -> tuple[str, str] | None:
+        """The URL and commit to deploy one negative from, if it was published."""
+        commit = self.commits.get(name)
+        return (self.url, commit) if commit else None
+
+
+def read_mirror(url: str, path: str | Path) -> Mirror:
+    """The mapping the mirror build wrote, as a Mirror."""
+    found = json.loads(Path(path).read_text(encoding="utf-8"))
+    return Mirror(url, {name: str(item["commit"])
+                        for name, item in found.items() if item.get("commit")})
+
+
 def run(rows: Iterable[dict], provider, remove: Remove,
-        listing: Listing | None = None, **kw) -> Batch:
+        listing: Listing | None = None, mirror: Mirror | None = None,
+        **kw) -> Batch:
     """Label a batch of module 5.2's rows, tearing every service down.
 
     rows are module 5.2's own dictionaries, so nothing here re-derives an
@@ -440,7 +664,14 @@ def run(rows: Iterable[dict], provider, remove: Remove,
                                      "the row carries no name or kind"))
             continue
 
-        result = label_one(name, kind, rule_id, commit, provider, remove, **kw)
+        here = dict(kw)
+        if kind == NEGATIVE and mirror is not None:
+            published = mirror.at(name)
+            if published:
+                here["url"], commit = published
+
+        here.setdefault("stack", str(row.get("stack", "")))
+        result = label_one(name, kind, rule_id, commit, provider, remove, **here)
         if isinstance(result, Excluded):
             excluded.append(result)
             logger.info("excluded %s: %s", name, result.reason)
@@ -448,10 +679,33 @@ def run(rows: Iterable[dict], provider, remove: Remove,
             labels.append(result)
             logger.info("%s: label %s at %s", name, result.label, result.stage)
 
-    left = sweep(listing) if listing is not None else ()
+    left = clear(listing, remove) if listing is not None else ()
     batch = Batch(tuple(labels), tuple(excluded), left)
     logger.info("%s", batch.summary())
     return batch
+
+
+def clear(listing: Listing, remove: Remove) -> tuple[str, ...]:
+    """Delete anything the batch left behind, then say what survived that.
+
+    A row cannot always tear its own service down. deploy_at creates the
+    service and then asks Render to build one commit, so a failure between
+    those two leaves a service running whose id the row never saw. Sweeping by
+    name catches exactly that, because the name is derived from the row rather
+    than returned by Render.
+
+    Only services carrying the prefix are touched, so nothing else in the
+    workspace is at risk.
+    """
+    stragglers = sweep(listing)
+    if not stragglers:
+        return ()
+
+    logger.warning("%s service(s) survived their row, deleting them now",
+                   len(stragglers))
+    for service_id in stragglers:
+        tear_down(service_id, remove)
+    return sweep(listing)
 
 
 def join(rows: Iterable[dict], labels: Iterable[Label]) -> list[dict]:
@@ -500,6 +754,36 @@ def sample(rows: Iterable[dict], full: int = 3, docker: int = 9,
     only = [r for r in real if has(r, "Dockerfile") and not has(r, sealing.ENV)]
     other = [r for r in ordered if r.get("kind") == NEGATIVE]
     return both[:full] + only[:docker] + other[:negatives]
+
+
+def pick(rows: Iterable[dict], count: int, seed: int = SEED) -> list[dict]:
+    """A random batch, keeping the dataset's own mix of real and synthetic.
+
+    sample chooses by which files a project carries, which is right for
+    exercising the harness and wrong for building a training set: file presence
+    is what failed_build and failed_environment measure, so selecting on it and
+    then training on it would bias the model toward the thing that was selected
+    for. This picks at random instead, and only the proportion of real
+    repositories to synthetic negatives is preserved, because that proportion
+    is a property of the dataset rather than of any row's features.
+
+    The seed is fixed, so a batch can be repeated, argued with, or resumed.
+    """
+    ordered = sorted(rows, key=lambda r: (str(r.get("kind", "")),
+                                          str(r.get("name", ""))))
+    real = [r for r in ordered if r.get("kind") == REPO]
+    other = [r for r in ordered if r.get("kind") == NEGATIVE]
+    if not ordered:
+        return []
+
+    share = len(real) / len(ordered)
+    wanted = min(count, len(ordered))
+    take = min(len(real), round(wanted * share))
+
+    rng = random.Random(seed)
+    chosen = rng.sample(real, take) + rng.sample(other, min(len(other), wanted - take))
+    rng.shuffle(chosen)
+    return chosen
 
 
 def read_rows(path: str | Path) -> list[dict]:

@@ -85,6 +85,14 @@ STATES: dict[str, Status] = {
 # Which runtime to ask for. Section 1 supports two stacks and both run on Node.
 RUNTIME = "node"
 
+# Which compute plan to ask for. Render's reference says a create call with no
+# plan defaults to 0.5c-512mb, which is a paid tier, so leaving this out puts
+# every project ProdPilot deploys on a billable instance without anyone asking
+# for one. Module 6.7 already assumes the opposite: its ninety second probe
+# window exists to absorb free tier cold starts. Sending it explicitly is what
+# makes the two agree.
+PLAN = "free"
+
 
 class RenderError(Exception):
     """Raised when the Render API cannot be used."""
@@ -192,25 +200,42 @@ class Render:
     # ---------------------------------------------------------------- 6.5
 
     def deploy(self, service: Service) -> Deployment:
-        """Create the web service and start its first deploy.
+        """Create the service and start its first deploy.
 
         The sealed values travel here in envVars and nowhere else.
+
+        A project with a publish path is created as a static site rather than a
+        web service. A built front end has no process to start, so asking
+        Render to run one fails every time, and Section 1's two stacks are
+        exactly this split: Node Express runs, React Vite builds and is served.
+        Sending both as web services made every React project fail for a reason
+        that had nothing to do with the project.
         """
         body = {
-            "type": "web_service",
             "name": service.name,
             "ownerId": self.workspace(),
             "repo": service.repo,
             "branch": service.branch,
-            "serviceDetails": {
+            "envVars": [{"key": k, "value": v} for k, v in sorted(service.env.items())],
+        }
+        if service.publish:
+            # Static sites take the build command and the publish path directly
+            # on serviceDetails, and accept neither a runtime nor a plan.
+            body["type"] = "static_site"
+            body["serviceDetails"] = {
+                "buildCommand": service.build,
+                "publishPath": service.publish,
+            }
+        else:
+            body["type"] = "web_service"
+            body["serviceDetails"] = {
                 "runtime": RUNTIME,
+                "plan": PLAN,
                 "envSpecificDetails": {
                     "buildCommand": service.build,
                     "startCommand": service.start,
                 },
-            },
-            "envVars": [{"key": k, "value": v} for k, v in sorted(service.env.items())],
-        }
+            }
         made = self.call("/services", method="POST", body=body)
         if not isinstance(made, dict):
             raise RenderError("creating the service returned no object")
@@ -225,7 +250,7 @@ class Render:
         return Deployment(
             service_id=str(service_id),
             deploy_id=str(deploy_id),
-            url=str(created.get("url") or ""),
+            url=live_url(created),
         )
 
     def set_env(self, service_id: str, env: Mapping[str, str]) -> None:
@@ -307,6 +332,21 @@ class Render:
         if not entries:
             return ""
         return "\n".join(str(e.get("message", "")) for e in entries if isinstance(e, dict))
+
+
+def live_url(created: Mapping) -> str:
+    """The address a created service will answer on.
+
+    Render puts this on serviceDetails, not on the service object. Reading
+    service.url returns nothing, which left stage 5 handing an empty URL to
+    every later stage: nothing for module 6.7 to smoke test and an empty
+    APP_URL for module 6.8 to seal. The service level key is still tried
+    second, so a shape Render adds later is not missed.
+    """
+    details = created.get("serviceDetails")
+    if isinstance(details, Mapping) and details.get("url"):
+        return str(details["url"])
+    return str(created.get("url") or "")
 
 
 def said(reply: Reply) -> str:

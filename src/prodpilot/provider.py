@@ -78,6 +78,16 @@ class Service:
     start: str
     env: Mapping[str, str] = field(default_factory=dict)
 
+    # Where a built front end leaves its files. Set for a project that is
+    # served as static files rather than run as a process, which is what a
+    # Vite or Create React App build produces. Empty means the project is a
+    # long running service with a start command, which is the Node case.
+    #
+    # This is a property of the project, not of the provider, so it belongs on
+    # the record rather than in any one implementation. A provider that has no
+    # separate notion of static hosting is free to ignore it.
+    publish: str = ""
+
 
 @dataclass(frozen=True)
 class Deployment:

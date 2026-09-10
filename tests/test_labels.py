@@ -152,13 +152,29 @@ def test_a_deploy_that_fails_is_negative(repo):
     assert result.stage == Stage.MONITOR.value
 
 
-def test_a_live_service_that_fails_smoke_is_negative(repo):
-    """Section 6 requires both: it deploys and it passes the smoke test."""
+def test_a_live_service_that_serves_health_is_positive(repo):
+    """The label is the deployment outcome plus the check that says the
+    service serves what it claims. This one answers /health and fails on /api
+    and a leaked stack trace, so it is positive under the label and negative
+    under Section 6 read strictly. Both are recorded."""
     result, _ = one(fetch=broken)
 
+    assert result.label == 1
+    assert result.strict == 0, "the strict reading is still recoverable"
+    assert result.live is True
+    assert "api response" in result.failed
+    assert "health probe" not in result.failed
+
+
+def test_a_live_service_that_never_serves_health_is_negative(repo):
+    def dead(url):
+        raise ConnectionError("refused")
+
+    result, _ = one(fetch=dead)
+
     assert result.label == 0
-    assert result.stage == Stage.SMOKE.value
-    assert "not verified" in result.detail
+    assert result.strict == 0
+    assert "health probe" in result.failed
 
 
 def test_a_deploy_that_never_finishes_is_negative(repo):
@@ -168,11 +184,13 @@ def test_a_deploy_that_never_finishes_is_negative(repo):
     assert result.stage == Stage.MONITOR.value
 
 
-def test_a_provider_that_raises_is_negative_not_a_crash(repo):
+def test_a_provider_that_raises_is_an_exclusion_not_a_crash(repo):
+    """It is also not a zero. Render refusing to build tells us nothing about
+    the project, which is the rule module 5.2 already held for its own row."""
     result, _ = one(provider=Provider(fail=RuntimeError("render said no")))
 
-    assert result.label == 0
-    assert "render said no" in result.detail
+    assert isinstance(result, Excluded)
+    assert "render said no" in result.reason
 
 
 def test_the_label_ignores_stages_one_to_three(repo):
@@ -257,8 +275,7 @@ def test_nothing_is_deleted_when_no_service_was_ever_created(repo):
     result, provider = one(provider=Provider(fail=RuntimeError("refused")))
 
     assert provider.deleted == []
-    assert result.service_id == ""
-    assert result.removed is False
+    assert isinstance(result, Excluded)
 
 
 def test_a_teardown_that_fails_is_recorded_rather_than_hidden():
@@ -581,3 +598,429 @@ def test_the_row_kinds_are_module_5_2s_rather_than_restated():
 
     assert labels.REPO is features.REPO
     assert labels.NEGATIVE is features.NEGATIVE
+
+
+# --------------------------------------------------------------------------
+# a provider that refuses is our problem, not the repository's
+# --------------------------------------------------------------------------
+
+
+def test_a_render_refusal_is_an_exclusion_not_a_zero(repo):
+    """402 with no card on file says nothing about the project's quality."""
+    result, _ = one(provider=Provider(fail=RuntimeError(
+        "POST /services returned 402: Payment information is required")))
+
+    assert isinstance(result, Excluded)
+    assert "never attempted" in result.reason
+    assert "402" in result.reason
+
+
+def test_an_unreachable_provider_is_an_exclusion(repo):
+    """The monitor's error outcome means the deploy was never observed."""
+    class Unreachable(Provider):
+        def poll_status(self, deploy_id):
+            raise RuntimeError("connection reset")
+
+    result, _ = one(provider=Unreachable())
+
+    assert isinstance(result, Excluded)
+    assert "could not be reached" in result.reason
+
+
+def test_a_real_build_failure_is_still_a_zero(repo):
+    """Render ran the build and it failed, which is a genuine negative."""
+    result, _ = one(provider=Provider([Status.FAILED]))
+
+    assert isinstance(result, Label)
+    assert result.label == 0
+
+
+def test_a_refusal_still_tears_down_a_service_that_was_created(repo):
+    class LateFail(Provider):
+        def poll_status(self, deploy_id):
+            raise RuntimeError("connection reset")
+
+    provider = LateFail()
+    result, _ = one(provider=provider)
+
+    assert isinstance(result, Excluded)
+    assert provider.deleted == ["srv-1"], "the service must not be left running"
+
+
+# --------------------------------------------------------------------------
+# the cleanup sweep, for a service whose row never saw its id
+# --------------------------------------------------------------------------
+
+
+def test_a_service_the_row_never_saw_is_deleted_by_the_sweep():
+    """deploy_at creates the service then pins the commit, so a failure
+    between the two leaves one running with no id the row could record."""
+    alive = [{"service": {"id": "srv-orphan", "name": f"{PREFIX}-abc"}}]
+    deleted = []
+
+    def remove(service_id):
+        deleted.append(service_id)
+        alive.clear()
+
+    left = labels.clear(lambda: list(alive), remove)
+
+    assert deleted == ["srv-orphan"]
+    assert left == ()
+
+
+def test_the_sweep_reports_what_it_could_not_delete():
+    alive = [{"service": {"id": "srv-stuck", "name": f"{PREFIX}-abc"}}]
+
+    def refuse(service_id):
+        raise RuntimeError("delete refused")
+
+    left = labels.clear(lambda: list(alive), refuse)
+
+    assert left == ("srv-stuck",)
+
+
+def test_a_clean_workspace_needs_no_deleting():
+    deleted = []
+
+    left = labels.clear(lambda: [], lambda s: deleted.append(s))
+
+    assert left == () and deleted == []
+
+
+def test_the_sweep_never_deletes_a_service_it_did_not_create():
+    alive = [{"service": {"id": "srv-mine", "name": "my-real-app"}}]
+    deleted = []
+
+    left = labels.clear(lambda: list(alive), lambda s: deleted.append(s))
+
+    assert deleted == [], "a developer's own service must never be touched"
+    assert left == ()
+
+
+def test_the_deploy_is_addressed_the_way_module_6_5_requires(repo):
+    """Render scopes a deploy to its service, so it is addressed as
+    service/deploy. Passing the bare deploy id made every real poll fail."""
+    seen = []
+
+    class Strict(Provider):
+        def poll_status(self, deploy_id):
+            seen.append(deploy_id)
+            service, _, deploy = deploy_id.partition("/")
+            if not deploy:
+                raise RuntimeError(
+                    "a deploy is addressed as service/deploy, "
+                    f"got {deploy_id}")
+            return Status.LIVE
+
+    result, _ = one(provider=Strict())
+
+    assert isinstance(result, Label), result
+    assert result.label == 1
+    assert seen == ["srv-1/dep-1"]
+
+
+# --------------------------------------------------------------------------
+# the default branch, because main is not universal
+# --------------------------------------------------------------------------
+
+
+def test_the_repositorys_own_default_branch_is_used():
+    """Render refuses a branch that does not exist, and a good part of this
+    dataset predates main and still uses master."""
+    asked = []
+
+    def ask(path):
+        asked.append(path)
+        return {"default_branch": "master"}
+
+    assert labels.branch_of("octo/old", ask) == "master"
+    assert asked == ["/repos/octo/old"]
+
+
+def test_a_repository_on_main_is_read_as_main():
+    assert labels.branch_of("octo/new", lambda p: {"default_branch": "main"}) == "main"
+
+
+def test_a_branch_that_cannot_be_read_falls_back_rather_than_failing():
+    """A rate limit must not cost a row its label."""
+    def refuse(path):
+        raise RuntimeError("403 rate limited")
+
+    assert labels.branch_of("octo/api", refuse) == labels.BRANCH
+
+
+def test_a_response_with_no_branch_falls_back():
+    assert labels.branch_of("octo/api", lambda p: {}) == labels.BRANCH
+
+
+def test_the_default_branch_is_asked_for_once_per_repository():
+    """The rate limit is shared with module 5.1, so answers are remembered."""
+    calls = []
+    seen: dict[str, str] = {}
+
+    def ask(path):
+        calls.append(path)
+        return {"default_branch": "develop"}
+
+    for _ in range(4):
+        assert labels.branch_of("octo/api", ask, seen) == "develop"
+
+    assert len(calls) == 1
+
+
+def test_the_branch_reaches_the_provider(repo):
+    result, provider = one(branch="master")
+
+    service, _ = provider.created[0]
+    assert service.branch == "master"
+
+
+# --------------------------------------------------------------------------
+# choosing a training batch without selecting on the features
+# --------------------------------------------------------------------------
+
+
+def batch_rows(reals: int, negs: int) -> list[dict]:
+    return ([{"name": f"octo/r{i}", "kind": "repo", "rule_id": "", "commit": COMMIT}
+             for i in range(reals)]
+            + [{"name": f"octo__r{i}_x", "kind": "negative", "rule_id": "X",
+                "commit": COMMIT} for i in range(negs)])
+
+
+def test_a_training_batch_is_chosen_at_random_not_by_its_files():
+    """sample selects on Dockerfile and .env presence, which is what
+    failed_build and failed_environment measure. Selecting on a feature and
+    then training on it would bias the model toward the selection."""
+    import inspect
+
+    source = inspect.getsource(labels.pick)
+
+    assert "Dockerfile" not in source
+    assert ".env" not in source
+    assert "random" in source
+
+
+def test_the_batch_keeps_the_datasets_mix_of_real_and_synthetic():
+    rows = batch_rows(499, 186)
+
+    picked = labels.pick(rows, 100)
+
+    real = sum(1 for r in picked if r["kind"] == "repo")
+    assert len(picked) == 100
+    assert 68 <= real <= 78, f"about 73 percent, got {real}"
+
+
+def test_the_same_seed_picks_the_same_batch():
+    rows = batch_rows(200, 80)
+
+    first = labels.pick(rows, 40)
+    second = labels.pick(rows, 40)
+
+    assert [r["name"] for r in first] == [r["name"] for r in second]
+
+
+def test_a_different_seed_picks_a_different_batch():
+    rows = batch_rows(200, 80)
+
+    first = labels.pick(rows, 40, seed=1)
+    second = labels.pick(rows, 40, seed=2)
+
+    assert [r["name"] for r in first] != [r["name"] for r in second]
+
+
+def test_asking_for_more_than_exists_returns_everything():
+    rows = batch_rows(6, 4)
+
+    picked = labels.pick(rows, 500)
+
+    assert len(picked) == 10
+
+
+def test_an_empty_dataset_picks_nothing():
+    assert labels.pick([], 10) == []
+
+
+def test_no_row_is_picked_twice():
+    rows = batch_rows(100, 40)
+
+    picked = labels.pick(rows, 60)
+
+    names = [r["name"] for r in picked]
+    assert len(names) == len(set(names))
+
+
+# --------------------------------------------------------------------------
+# staying inside Render's twenty creates an hour
+# --------------------------------------------------------------------------
+
+
+def paced(limit=3, window=60.0):
+    ticks = [0.0]
+    sleep = lambda s: ticks.__setitem__(0, ticks[0] + s)
+    return labels.Pace(limit=limit, window=window, sleep=sleep,
+                       clock=lambda: ticks[0]), ticks
+
+
+def test_creates_inside_the_limit_never_wait():
+    pace, ticks = paced(limit=3, window=60.0)
+
+    assert [pace.wait() for _ in range(3)] == [0.0, 0.0, 0.0]
+    assert ticks[0] == 0.0
+
+
+def test_the_create_over_the_limit_waits_for_the_window():
+    pace, ticks = paced(limit=3, window=60.0)
+    for _ in range(3):
+        pace.wait()
+
+    waited = pace.wait()
+
+    assert waited == 60.0
+    assert ticks[0] == 60.0
+
+
+def test_the_limit_is_a_rolling_window_not_a_bucket():
+    """Once the oldest create ages out, another is allowed with no wait."""
+    pace, ticks = paced(limit=3, window=60.0)
+    for _ in range(3):
+        pace.wait()
+
+    ticks[0] = 61.0
+
+    assert pace.wait() == 0.0
+
+
+def test_the_wait_is_only_as_long_as_it_has_to_be():
+    pace, ticks = paced(limit=2, window=60.0)
+    pace.wait()
+    ticks[0] = 50.0
+    pace.wait()
+
+    assert pace.wait() == pytest.approx(10.0), "until the first ages out, not 60"
+
+
+def test_the_pace_reports_what_it_spent_waiting():
+    pace, _ = paced(limit=1, window=30.0)
+    pace.wait()
+    pace.wait()
+    pace.wait()
+
+    assert pace.waited == 60.0
+
+
+def test_due_reports_without_consuming_a_create():
+    pace, _ = paced(limit=2, window=60.0)
+
+    assert pace.due() == 0.0
+    assert pace.due() == 0.0
+    pace.wait()
+    pace.wait()
+    assert pace.due() == 60.0
+    assert len(pace.made) == 2, "asking must not count as creating"
+
+
+def test_the_limit_is_the_one_render_documents():
+    assert labels.CREATES == 20
+    assert labels.WINDOW == 3600.0
+
+
+# --------------------------------------------------------------------------
+# the label rule itself, and the strict reading kept beside it
+# --------------------------------------------------------------------------
+
+
+def test_a_project_that_never_went_live_is_negative():
+    assert labels.scored(False, ()) == 0
+    assert labels.scored(False, ("health probe",)) == 0
+
+
+def test_live_and_serving_health_is_positive():
+    assert labels.scored(True, ()) == 1
+    assert labels.scored(True, ("cors headers", "security headers")) == 1
+
+
+def test_live_but_not_serving_health_is_negative():
+    assert labels.scored(True, ("health probe",)) == 0
+
+
+def test_the_strict_reading_needs_every_check():
+    assert labels.strictly(True, ()) == 1
+    assert labels.strictly(True, ("cors headers",)) == 0
+    assert labels.strictly(False, ()) == 0
+
+
+def test_the_two_readings_differ_exactly_where_the_evidence_said_they_would():
+    """Three of the forty labelled rows went live and served health while
+    failing only headers and CORS. That gap is the whole reason for the
+    change, so it is pinned here rather than left as prose."""
+    live, failed = True, ("security headers", "cors headers")
+
+    assert labels.scored(live, failed) == 1
+    assert labels.strictly(live, failed) == 0
+
+
+def test_the_strict_label_is_recoverable_from_a_stored_row():
+    """No redeployment is ever needed to read the dataset the other way."""
+    row = Label("a/b", "repo", "", COMMIT, 1, "smoke", "",
+                live=True, failed=("cors headers",))
+
+    assert row.label == 1
+    assert row.strict == 0
+    assert row.to_dict()["strict"] == 0
+    assert row.to_dict()["failed"] == ["cors headers"]
+
+
+# --------------------------------------------------------------------------
+# the two stacks are deployed differently, because they are different things
+# --------------------------------------------------------------------------
+
+
+def test_a_node_project_is_started_as_a_process():
+    build, start, publish, answers = labels.serves("node_express")
+
+    assert start == "npm start"
+    assert publish == "", "a Node service has a process, not a publish path"
+    assert answers == "/health"
+
+
+def test_a_react_project_is_built_and_served_as_files():
+    """It has no start script, so asking a provider to run one fails every
+    time. Every React row in the first two batches was a false negative."""
+    build, start, publish, answers = labels.serves("react_vite")
+
+    assert "npm run build" in build
+    assert start == ""
+    assert publish == "dist", "Vite's documented output directory"
+    assert answers == "/", "a built front end serves its app at the root"
+
+
+def test_an_unknown_stack_falls_back_to_the_node_shape():
+    assert labels.serves("") == (labels.INSTALL, labels.START, "", "/health")
+
+
+def test_a_react_row_reaches_the_provider_as_a_static_site(repo):
+    result, provider = one(stack="react_vite")
+
+    service, _ = provider.created[0]
+    assert service.publish == "dist"
+    assert service.start == ""
+
+
+def test_a_node_row_reaches_the_provider_as_a_service(repo):
+    result, provider = one(stack="node_express")
+
+    service, _ = provider.created[0]
+    assert service.publish == ""
+    assert service.start == "npm start"
+
+
+def test_the_stack_is_taken_from_module_5_2s_row(repo):
+    """Not guessed, and not re-derived by a second detection pass."""
+    provider = Provider()
+    batch = run([{"name": "octo/api", "kind": "repo", "rule_id": "",
+                  "commit": COMMIT, "stack": "react_vite"}],
+                provider, provider.remove,
+                sleep=instant()[0], clock=instant()[1], fetch=healthy)
+
+    service, _ = provider.created[0]
+    assert service.publish == "dist"

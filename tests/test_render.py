@@ -56,9 +56,23 @@ class Api:
 OWNERS = [{"owner": {"id": OWNER, "name": "Team", "email": "t@example.com",
                      "type": "team"}, "cursor": "c"}]
 
+# The shape Render's API actually returns, captured from a real create call.
+# The live URL is on serviceDetails, not on the service object. An earlier
+# hand written version of this mock put it on the service, which made a real
+# defect in deploy look correct for as long as only the mock was consulted.
 CREATED = {
-    "service": {"id": "srv-abc", "url": "https://api-abc.onrender.com",
-                "name": "api", "type": "web_service"},
+    "service": {
+        "id": "srv-abc",
+        "name": "api",
+        "type": "web_service",
+        "slug": "api",
+        "dashboardUrl": "https://dashboard.render.com/web/srv-abc",
+        "serviceDetails": {
+            "url": "https://api-abc.onrender.com",
+            "plan": "free",
+            "runtime": "node",
+        },
+    },
     "deployId": "dep-xyz",
 }
 
@@ -653,3 +667,114 @@ def test_deleting_answers_204_with_no_body():
     made, _ = provider({"/services/srv-abc": Reply(204, b"")})
 
     assert made.remove("srv-abc") is None
+
+
+def test_a_created_service_asks_for_the_free_plan():
+    """Render defaults a create call to 0.5c-512mb, which is billable.
+
+    Leaving the plan out put every project ProdPilot deploys on a paid instance
+    that nobody asked for, and contradicted module 6.7, whose ninety second
+    probe window exists to absorb free tier cold starts.
+    """
+    made, api = provider()
+
+    made.deploy(Service(name="api", repo="r", branch="main",
+                        build="npm install", start="npm start"))
+
+    assert api.body_of("/services")["serviceDetails"]["plan"] == "free"
+    assert render.PLAN == "free"
+
+
+def test_the_plan_travels_on_a_pinned_deploy_too():
+    made, api = provider({"/deploys": reply(201, {"id": "dep-pinned"}),
+                          "/owners": reply(200, OWNERS),
+                          "/services": reply(201, CREATED)})
+
+    made.deploy_at(Service(name="api", repo="r", branch="main",
+                           build="npm install", start="npm start"), "abc123")
+
+    assert api.body_of("/services")["serviceDetails"]["plan"] == "free"
+
+
+def test_the_live_url_is_read_from_where_render_actually_puts_it():
+    """Render returns the address on serviceDetails, not on the service.
+
+    Reading the wrong key returned an empty string, which left module 6.7 with
+    nothing to probe and module 6.8 sealing an empty APP_URL.
+    """
+    made, _ = provider()
+
+    result = made.deploy(Service(name="api", repo="r", branch="main",
+                                 build="npm install", start="npm start"))
+
+    assert result.url == "https://api-abc.onrender.com"
+
+
+def test_a_service_level_url_is_still_accepted():
+    """Second choice, so a shape Render adds later is not missed."""
+    assert render.live_url({"url": "https://old.onrender.com"}) == "https://old.onrender.com"
+
+
+def test_service_details_wins_when_both_are_present():
+    found = render.live_url({"url": "https://old.test",
+                             "serviceDetails": {"url": "https://new.test"}})
+
+    assert found == "https://new.test"
+
+
+def test_a_response_with_no_url_anywhere_is_empty_not_a_crash():
+    assert render.live_url({}) == ""
+    assert render.live_url({"serviceDetails": {}}) == ""
+
+
+# --------------------------------------------------------------------------
+# static sites, because a built front end has no process to start
+# --------------------------------------------------------------------------
+
+
+def test_a_project_with_a_publish_path_is_created_as_a_static_site():
+    made, api = provider()
+
+    made.deploy(Service(name="site", repo="r", branch="main",
+                        build="npm install && npm run build", start="",
+                        publish="dist"))
+
+    body = api.body_of("/services")
+    assert body["type"] == "static_site"
+    assert body["serviceDetails"]["publishPath"] == "dist"
+    assert body["serviceDetails"]["buildCommand"] == "npm install && npm run build"
+
+
+def test_a_static_site_asks_for_no_runtime_and_no_plan():
+    """Render's schema accepts neither on a static site."""
+    made, api = provider()
+
+    made.deploy(Service(name="site", repo="r", branch="main", build="b",
+                        start="", publish="dist"))
+
+    details = api.body_of("/services")["serviceDetails"]
+    assert "runtime" not in details
+    assert "plan" not in details
+    assert "envSpecificDetails" not in details
+
+
+def test_a_project_with_no_publish_path_is_still_a_web_service():
+    made, api = provider()
+
+    made.deploy(Service(name="api", repo="r", branch="main",
+                        build="npm install", start="npm start"))
+
+    body = api.body_of("/services")
+    assert body["type"] == "web_service"
+    assert body["serviceDetails"]["plan"] == "free"
+    assert body["serviceDetails"]["envSpecificDetails"]["startCommand"] == "npm start"
+
+
+def test_the_environment_travels_on_both_shapes():
+    made, api = provider()
+
+    made.deploy(Service(name="site", repo="r", branch="main", build="b",
+                        start="", publish="dist", env={"API_URL": "https://x.test"}))
+
+    assert api.body_of("/services")["envVars"] == [
+        {"key": "API_URL", "value": "https://x.test"}]
