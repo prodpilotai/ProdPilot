@@ -318,3 +318,68 @@ def test_the_model_summarises_itself_for_a_report(wired):
     json.dumps(payload)
     assert payload["features"] == 25
     assert payload["rows"] == 300
+
+
+
+# --------------------------------------------------------------------------
+# the operating threshold the gate judges every estimate against
+# --------------------------------------------------------------------------
+
+
+def test_the_threshold_travels_from_training_to_the_loaded_model(wired):
+    import joblib
+
+    stored = joblib.load(wired)["threshold"]
+    made = load()
+
+    assert made.threshold == stored
+    assert 0.0 < made.threshold < 1.0
+
+
+def test_an_artifact_with_no_threshold_is_refused(tmp_path: Path, wired):
+    """The gate judges every estimate against it, so without one the model
+    cannot be used, however good its estimates are."""
+    import joblib
+
+    found = joblib.load(wired)
+    del found["threshold"]
+    stripped = tmp_path / "model.joblib"
+    joblib.dump(found, stripped)
+
+    with pytest.raises(ScoreError) as caught:
+        load(stripped)
+
+    assert "operating threshold" in str(caught.value)
+
+
+def test_a_threshold_that_is_not_a_probability_is_refused(tmp_path: Path, wired):
+    import joblib
+
+    found = joblib.load(wired)
+    found["threshold"] = 1.5
+    broken = tmp_path / "model.joblib"
+    joblib.dump(found, broken)
+
+    with pytest.raises(ScoreError):
+        load(broken)
+
+
+def test_the_estimate_comes_with_its_operating_point(wired, report):
+    chance, operating = scoring.estimate(report)
+
+    assert 0.0 <= chance <= 1.0
+    assert operating == load().threshold
+
+
+def test_clearing_is_judged_at_the_stored_threshold():
+    class Fixed:
+        classes_ = [0, 1]
+
+        def predict_proba(self, rows):
+            return [[0.7, 0.3] for _ in rows]
+
+    low = Model(Fixed(), features.FEATURES, "2026-09-12", {}, threshold=0.25)
+    high = Model(Fixed(), features.FEATURES, "2026-09-12", {}, threshold=0.35)
+
+    assert low.clears([0] * 25) is True
+    assert high.clears([0] * 25) is False

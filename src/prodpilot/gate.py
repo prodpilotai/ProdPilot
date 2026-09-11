@@ -1,12 +1,11 @@
 """The scoring gate: decide whether a project may deploy, and loop if not.
 
-Scope is Phase 4 module 4.2, the provisional stage. It gates on the raw audit
-engine score from Phase 2, because the calibrated probability from the ML model
-does not exist yet. That is deliberate, not a shortcut: module 4.3 swaps the
-score source once Phase 5 module 5.5 lands, and the Phased Implementation Plan
-is explicit that the bands and the gate behaviour do not change when it does.
-
-No model is referenced here, and none is stubbed.
+Scope is Phase 4, modules 4.2 and 4.3. Module 4.2 gates on the audit engine's
+0 to 100 score with a threshold and a blocker rule. Module 4.3 adds the model
+Phase 5 trained on real Render outcomes, as a third condition beside that score
+rather than in place of it. Why it sits beside the score and not in its place
+is set out in reading, because that is where the Implementation Phases document
+expected the change to land.
 
 Where the threshold comes from
 ------------------------------
@@ -86,6 +85,8 @@ class Decision:
     resolved: tuple[str, ...] = field(default_factory=tuple)
     blockers: tuple[str, ...] = field(default_factory=tuple)
     review: tuple[Review, ...] = field(default_factory=tuple)
+    chance: float | None = None
+    operating: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -95,6 +96,9 @@ class Decision:
             "threshold": self.threshold,
             "score": self.score,
             "band": self.band,
+            "deploy_chance": round(self.chance, 4) if self.chance is not None else None,
+            "operating_point": (round(self.operating, 4)
+                                if self.operating is not None else None),
             "cycles": self.cycles,
             "stopped": self.stopped,
             "resolved": list(self.resolved),
@@ -112,40 +116,58 @@ class Decision:
 
 
 def reading(result: Reaudit) -> int | None:
-    """The score the gate reads.
+    """The score the gate compares against its threshold, and the band's source.
 
-    The one place the source of the number lives, so module 4.3 is a change here
-    and nowhere else. The threshold comparison, the band and the reason text are
-    all computed from whatever this returns.
+    The audit engine's own 0 to 100 score, as module 4.2 built it.
 
-    Module 4.3, done. This returns the trained GradientBoostingClassifier's
-    calibrated probability for the project, mapped onto the same 0 to 100 range,
-    through module 5.5. It no longer returns Reaudit.score, the audit engine's
-    own priority weighted number.
+    The Implementation Phases document expected module 4.3 to replace this with
+    the calibrated model's probability and leave the threshold and the bands
+    unchanged. Measured on the real dataset, that cannot work. The model is
+    honest: its probabilities match observed deploy rates. And no project in
+    684 real repositories reaches a calibrated 0.9, not even with every failing
+    rule set to passing, where the highest is 0.63. Much of what makes a
+    deployment fail, a database it needs or a secret it lacks, is outside
+    anything the audit measures, so the model cannot be that sure. A gate at 90
+    on the probability would never open, and ProdPilot would never deploy.
 
-    Nothing else moved. The threshold is still 90, the blocker rule still
-    stands, and the band is still derived from this return value rather than
-    from the report, so it followed the new source without being touched.
+    So the audit score keeps its place, with its threshold of 90, its blocker
+    rule and its bands, and the model is asked a separate question in estimate:
+    is the chance this project really deploys at or above the operating point
+    module 5.4 chose. That is a deliberate deviation from the document's wording,
+    recorded here and in the commit that made it.
+    """
+    return result.score
 
-    A model that cannot be loaded produces no score rather than falling back to
-    the audit engine's. The two numbers mean different things, so reporting one
-    as the other would be a lie a reader could not detect. No score means the
-    gate stays shut, which is the behaviour module 4.2 already built.
+
+def estimate(result: Reaudit) -> tuple[float | None, float | None]:
+    """The model's chance this project really deploys, and its operating point.
+
+    Module 4.3's half of the gate. Both numbers come from module 5.5, and the
+    operating point is the threshold module 5.4 chose on its training rows.
+
+    A model that cannot be loaded gives no estimate rather than a guess, and no
+    estimate keeps the gate shut. The audit score is never used in its place,
+    because the two numbers answer different questions.
     """
     if result.report is None:
-        return None
+        return None, None
     try:
-        return scoring.score(result.report)
+        return scoring.estimate(result.report)
     except (ScoreError, FeatureError) as exc:
-        logger.error("no calibrated score for %s: %s", result.project, exc)
-        return None
+        logger.error("no deployability estimate for %s: %s", result.project, exc)
+        return None, None
 
 
 def clears(result: Reaudit, threshold: int = THRESHOLD) -> tuple[bool, str]:
     """Whether a re-audit opens the gate, and the reason either way.
 
-    Fails closed. A project that could not be audited does not deploy, because
-    an absent score is not a passing score.
+    Three conditions, all of which must hold, checked in this order: no critical
+    rule still failing, the audit score at the threshold, and the model's
+    estimate at its operating point. The deterministic checks come first, so a
+    project the fix loop has not finished with never needs the model at all.
+
+    Fails closed. A project that could not be audited, or that the model could
+    not estimate, does not deploy.
     """
     if not result.ok or result.report is None:
         return False, result.reason or "the project could not be audited"
@@ -158,15 +180,21 @@ def clears(result: Reaudit, threshold: int = THRESHOLD) -> tuple[bool, str]:
             f"score {score} but {len(blockers)} critical rule(s) still fail: "
             f"{', '.join(blockers)}"
         )
-    if score is None:
-        # Module 5.5 could not produce a calibrated score. The gate stays shut
-        # rather than reaching for the audit engine's number, which measures
-        # something else.
-        return False, ("no calibrated score could be produced, so the gate "
-                       "stays shut. See the log for why")
-    if score < threshold:
+    if score is None or score < threshold:
         return False, f"score {score} is below the threshold of {threshold}"
-    return True, f"score {score} meets the threshold of {threshold} with no critical failures"
+
+    chance, operating = estimate(result)
+    if chance is None or operating is None:
+        return False, (f"score {score} meets the threshold, but no deployability "
+                       f"estimate could be produced, so the gate stays shut. See "
+                       f"the log for why")
+    if chance < operating:
+        return False, (f"score {score} meets the threshold, but the model estimates "
+                       f"a {chance:.0%} chance of deploying, below its operating "
+                       f"point of {operating:.0%}")
+    return True, (f"score {score} meets the threshold of {threshold} with no critical "
+                  f"failures, and the model estimates a {chance:.0%} chance of "
+                  f"deploying, at or above its operating point of {operating:.0%}")
 
 
 def run(
@@ -211,10 +239,10 @@ def run(
     passed, why = clears(final, threshold)
 
     # The band is computed from the gate's own reading rather than taken off the
-    # report, so the score and the band always describe the same number. Taking
-    # it off the report would leave a second score source behind, and module 4.3
-    # would then report a calibrated score beside the audit score's band.
+    # report, so the score and the band always describe the same number. The
+    # model's estimate travels beside them, so a developer sees both numbers.
     score = reading(final)
+    chance, operating = estimate(final) if final.ok else (None, None)
     decision = Decision(
         project=final.project or name,
         ready=passed,
@@ -227,6 +255,8 @@ def run(
         resolved=done.resolved,
         blockers=tuple(r.rule_id for r in final.report.blockers) if final.ok else (),
         review=done.review,
+        chance=chance,
+        operating=operating,
     )
     logger.info("%s", decision.summary())
     return decision

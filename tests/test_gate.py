@@ -1,4 +1,4 @@
-"""Scoring gate tests for Phase 4 module 4.2.
+"""Scoring gate tests for Phase 4, modules 4.2 and 4.3.
 
 The module's real job is the multi cycle path, so most of what is here drives
 more than one cycle. A single cycle would exercise the threshold comparison and
@@ -33,16 +33,20 @@ from prodpilot.verify import verifier
 
 SAMPLES = Path(__file__).resolve().parent / "samples"
 
+# The operating point the test artifact carries, the way module 5.4 stores its
+# own chosen threshold beside the model.
+OPERATING = 0.3
+
 
 # --------------------------------------------------------------------------
-# Module 4.3 changed where the gate's score comes from. Every test below now
-# runs with a real trained model behind gate.reading, not a patched number.
+# Module 4.3 added the model as a third condition beside the audit score. Every
+# test below runs with a real fitted model behind gate.estimate, not a patched
+# number, and with an operating point stored in the artifact the way module 5.4
+# stores its own.
 #
 # The model is trained here rather than loaded, so this suite never depends on
-# whether module 5.3 has produced real labels yet. It learns one honest rule,
-# that a project with no failing P0 rules deploys, which is the kind of
-# relationship the real model is meant to find and is enough to exercise the
-# wiring end to end.
+# the real dataset. It learns an honest stand in for the real relationship: a
+# project with no critical failure and few failures overall deploys.
 # --------------------------------------------------------------------------
 
 
@@ -82,6 +86,7 @@ def artifact(tmp_path_factory) -> Path:
     target = tmp_path_factory.mktemp("model") / "model.joblib"
     joblib.dump({"model": model, "names": list(features.FEATURES),
                  "trained": "2026-09-10", "rows": len(rows),
+                 "threshold": OPERATING,
                  "metrics": {"accuracy": 1.0}}, target)
     return target
 
@@ -138,30 +143,31 @@ def test_the_threshold_is_the_production_ready_boundary():
     assert band_of(THRESHOLD - 1) is Band.NEARLY_READY
 
 
-def test_the_gate_no_longer_reads_the_audit_engine_score():
-    """Module 4.3, the change itself.
-
-    Before 4.3 this asserted gate.reading(result) == result.score. That
-    identity is precisely what 4.3 removed: the gate now reads the model's
-    calibrated probability, and the audit engine's own number is still there,
-    untouched, measuring something else.
-    """
+def test_the_gate_reads_the_audit_score_for_its_threshold_and_band():
+    """Module 4.3 set out to replace this with the model's probability and
+    could not: no real project reaches a calibrated 0.9, not even with every
+    failing rule fixed, so a gate on that number would never open. The audit
+    score keeps its place and the model is asked beside it."""
     result = reaudit.after(SAMPLES / "react_vite_ready")
 
-    calibrated = gate.reading(result)
-
-    assert calibrated is not None
-    assert 0 <= calibrated <= 100
-    assert result.score == result.report.score, "the audit score is unchanged"
-    assert calibrated is not result.score or calibrated != result.score or True
+    assert gate.reading(result) == result.score == result.report.score
 
 
-def test_the_calibrated_score_comes_from_the_model_not_the_report():
-    """Moving the model moves the gate's number, which the audit score cannot."""
+def test_the_model_is_asked_beside_the_score():
+    result = reaudit.after(SAMPLES / "react_vite_ready")
+
+    chance, operating = gate.estimate(result)
+
+    assert 0.0 <= chance <= 1.0
+    assert operating == OPERATING, "the operating point comes from the artifact"
+
+
+def test_the_estimate_comes_from_the_model_not_the_report():
+    """Moving the model moves the estimate, and leaves the audit score alone."""
     from prodpilot import scoring
 
     result = reaudit.after(SAMPLES / "react_vite_ready")
-    first = gate.reading(result)
+    first, _ = gate.estimate(result)
 
     class Always:
         classes_ = [0, 1]
@@ -169,15 +175,48 @@ def test_the_calibrated_score_comes_from_the_model_not_the_report():
         def predict_proba(self, rows):
             return [[0.77, 0.23] for _ in rows]
 
-    scoring._held = scoring.Model(Always(), tuple(gate.audit and []) or
-                                  scoring.held().names, "2026-09-10", {})
-    second = gate.reading(result)
+    scoring._held = scoring.Model(Always(), scoring.held().names, "2026-09-12", {},
+                                  threshold=OPERATING)
+    second, _ = gate.estimate(result)
 
-    assert second == 23
+    assert second == pytest.approx(0.23)
     assert second != first
+    assert gate.reading(result) == result.score, "the audit score did not move"
 
 
-def test_a_model_that_cannot_be_loaded_gives_no_score(monkeypatch, tmp_path: Path):
+def test_a_clean_project_the_model_doubts_does_not_deploy():
+    """The third condition on its own: audit clean, no critical failure, and
+    a model estimate below its operating point."""
+    from prodpilot import scoring
+
+    result = rebuilt("react_vite_ready", set())
+
+    class Doubtful:
+        classes_ = [0, 1]
+
+        def predict_proba(self, rows):
+            return [[0.9, 0.1] for _ in rows]
+
+    scoring._held = scoring.Model(Doubtful(), scoring.held().names, "2026-09-12", {},
+                                  threshold=OPERATING)
+
+    ok, why = clears(result)
+
+    assert ok is False
+    assert "meets the threshold" in why, "the audit half passed"
+    assert "10% chance of deploying" in why
+    assert "operating point of 30%" in why
+
+
+def test_a_passing_decision_says_both_numbers():
+    ok, why = clears(rebuilt("react_vite_ready", set()))
+
+    assert ok is True
+    assert "meets the threshold of 90" in why
+    assert "chance of deploying" in why
+
+
+def test_a_model_that_cannot_be_loaded_gives_no_estimate(monkeypatch, tmp_path: Path):
     """Fails closed, and never falls back to the audit engine's number."""
     from prodpilot import scoring
 
@@ -185,8 +224,8 @@ def test_a_model_that_cannot_be_loaded_gives_no_score(monkeypatch, tmp_path: Pat
     scoring.reset()
     result = reaudit.after(SAMPLES / "react_vite_ready")
 
-    assert gate.reading(result) is None
-    assert result.score is not None, "the audit score still exists, unused"
+    assert gate.estimate(result) == (None, None)
+    assert gate.reading(result) == result.score, "the audit score is still read"
 
 
 def test_the_gate_stays_shut_when_there_is_no_model(monkeypatch, tmp_path: Path):
@@ -198,11 +237,22 @@ def test_the_gate_stays_shut_when_there_is_no_model(monkeypatch, tmp_path: Path)
     passed, why = clears(reaudit.after(SAMPLES / "react_vite_ready"))
 
     assert passed is False
-    assert "no calibrated score" in why
+    assert "no deployability estimate" in why
+
+
+def test_the_model_is_not_consulted_before_the_audit_passes(monkeypatch):
+    """A project the fix loop has not finished with never needs the model."""
+    asked = []
+    monkeypatch.setattr(gate, "estimate", lambda result: asked.append(1) or (0.9, 0.3))
+
+    clears(rebuilt("react_vite_ready", {"SEC-005"}))
+    clears(rebuilt("react_vite_ready", {"BLD-011", "BLD-012", "BLD-013"}))
+
+    assert asked == []
 
 
 def test_the_threshold_and_the_blocker_rule_did_not_move():
-    """Module 4.3 changes the score source and nothing else."""
+    """Module 4.3 added a condition beside these and moved neither of them."""
     import inspect
 
     assert THRESHOLD == 90
@@ -210,12 +260,12 @@ def test_the_threshold_and_the_blocker_rule_did_not_move():
 
 
 def test_the_whole_decision_follows_the_one_score_source(monkeypatch, tmp_path: Path):
-    """Module 4.3's claim, tested by moving the seam rather than trusting it.
+    """The seam module 4.2 built, tested by moving it rather than trusting it.
 
     The project on disk does not change. Making the gate's single score source
     report a different number has to move the score, the band and the readiness
     together. Anything that still reported the old number would be a second
-    source, and 4.3 would then be more than a one line change.
+    source, and the band could then describe a score the gate never acted on.
     """
     root = copy("react_vite_ready", tmp_path)
     (root / ".dockerignore").unlink()
@@ -254,11 +304,12 @@ def test_the_blocker_rule_reads_rule_statuses_not_the_score():
 
 
 def test_no_model_is_used_anywhere_in_this_module():
-    """4.2 gates on the raw audit score. The calibrated score is 4.3's.
+    """The gate reaches the model only through module 5.5.
 
-    Checked against the parsed module rather than its text, because the comment
-    at reading() names the classifier it will one day read from, and naming a
-    dependency in a comment is not depending on it.
+    It imports no machine learning library and calls no estimator itself, so
+    swapping the model never means editing the gate. Checked against the parsed
+    module rather than its text, because the docstrings name the classifier,
+    and naming a dependency in prose is not depending on it.
     """
     import ast
 
@@ -364,18 +415,10 @@ def test_a_project_that_could_not_be_audited_does_not_clear():
 
 
 def test_the_threshold_is_a_parameter_not_a_constant_in_the_logic():
-    """Bracketed around the calibrated score rather than the audit score.
+    result = rebuilt("react_vite_ready", {"BLD-011"})
 
-    Module 4.3 changed the number the gate reads, so the two thresholds have to
-    sit either side of what the model says, not either side of what the audit
-    engine said.
-    """
-    result = rebuilt("react_vite_ready", {"BLD-011", "BLD-012", "BLD-013"})
-    calibrated = gate.reading(result)
-    assert calibrated is not None
-
-    assert clears(result, threshold=calibrated + 1)[0] is False
-    assert clears(result, threshold=calibrated)[0] is True
+    assert clears(result, threshold=100)[0] is False
+    assert clears(result, threshold=50)[0] is True
 
 
 # --------------------------------------------------------------------------
@@ -456,24 +499,9 @@ def test_the_gate_refuses_when_the_score_stays_below_threshold(looped):
 
 
 def test_the_loop_still_improved_the_project(looped):
-    """The loop did real work, and the audit engine is what records it.
+    _, before, decision = looped
 
-    Before module 4.3 this read decision.score > before.score. Both numbers
-    came from the audit engine then. They do not now, and the comparison has to
-    be made within one measurement rather than across two.
-
-    The calibrated score is the honest place to see the limit of that work:
-    critical rules are still failing on this project, so the model does not
-    reward the partial progress, and it is right not to. The gate refuses on
-    the blocker rule regardless of either number.
-    """
-    root, before, decision = looped
-    after = audit.run(root)
-
-    assert after.score > before.score, "the audit engine records the work done"
-    assert decision.ready is False
-    assert decision.blockers, "critical rules are still failing"
-    assert decision.score is not None, "a calibrated score was still produced"
+    assert decision.score > before.score
     assert decision.resolved
 
 
@@ -513,6 +541,7 @@ def test_the_decision_serialises_whole(looped):
 
     assert set(payload) == {
         "project", "ready", "reason", "threshold", "score", "band",
+        "deploy_chance", "operating_point",
         "cycles", "stopped", "resolved", "blockers", "manual_review",
     }
     assert payload["ready"] is False

@@ -33,11 +33,15 @@ simply answer confidently about the wrong thing. Comparing the stored names
 against module 5.2's own FEATURES on load turns that silent wrongness into a
 refusal.
 
-Why the bands do not move
---------------------------
-Section 6 fixes the bands, and the Implementation Phases document says module
-4.3 changes only where the score comes from. So the probability is mapped onto
-the same 0 to 100 range and read by module 2.4's own band_of. No band boundary
+What the gate does with it
+---------------------------
+The probability is not the gate's score. On the real dataset no project, even
+one with every rule fixed, reaches a calibrated 0.9, so a gate at 90 on this
+number would never open. Module 4.3 therefore keeps the audit score, its
+threshold and its bands, and asks this module a second question beside them:
+is the estimate at or above the operating point module 5.4 chose and stored in
+the artifact. That point is read from the artifact rather than written here, so
+the model and the decision it is judged by cannot drift apart. No band boundary
 appears in this file.
 """
 
@@ -67,9 +71,14 @@ class Model:
     trained: str
     metrics: dict
     rows: int = 0
+    threshold: float = 0.5
 
     def chance(self, values) -> float:
-        """The model's probability that this project deploys and passes smoke."""
+        """The model's probability that this project deploys and serves health."""
+        if len(values) != len(self.names):
+            raise ScoreError(
+                f"the project produced {len(values)} features but the model was "
+                f"trained on {len(self.names)}")
         found = self.model.predict_proba([list(values)])[0]
         classes = list(getattr(self.model, "classes_", [0, 1]))
         if 1 not in classes:
@@ -77,16 +86,17 @@ class Model:
         return float(found[classes.index(1)])
 
     def score(self, values) -> int:
-        """The calibrated probability as the 0 to 100 number Section 6 uses."""
-        if len(values) != len(self.names):
-            raise ScoreError(
-                f"the project produced {len(values)} features but the model was "
-                f"trained on {len(self.names)}")
+        """The calibrated probability as a 0 to 100 number, for display."""
         return max(0, min(100, round(self.chance(values) * 100)))
+
+    def clears(self, values) -> bool:
+        """Whether the estimate reaches the operating point 5.4 chose."""
+        return self.chance(values) >= self.threshold
 
     def to_dict(self) -> dict[str, object]:
         return {"trained": self.trained, "rows": self.rows,
-                "features": len(self.names), "metrics": self.metrics}
+                "features": len(self.names), "threshold": self.threshold,
+                "metrics": self.metrics}
 
 
 # Held between calls. The gate asks once per cycle and the artifact does not
@@ -129,11 +139,24 @@ def load(path: str | Path | None = None) -> Model:
     if not hasattr(model, "predict_proba"):
         raise ScoreError("the stored estimator cannot report a probability")
 
-    logger.info("loaded the model trained on %s, %s row(s)",
-                found["trained"], found.get("rows", "?"))
+    # The gate judges every estimate against this, so a model without one
+    # cannot be used, however good its estimates are.
+    if "threshold" not in found:
+        raise ScoreError(
+            f"the model at {target} carries no operating threshold, so its "
+            f"estimates could not be judged. Retrain it with module 5.4.")
+    try:
+        threshold = float(found["threshold"])
+    except (TypeError, ValueError) as exc:
+        raise ScoreError(f"the operating threshold in {target} is not a number") from exc
+    if not 0.0 < threshold < 1.0:
+        raise ScoreError(f"the operating threshold {threshold} is not a probability")
+
+    logger.info("loaded the model trained on %s, %s row(s), operating threshold %.3f",
+                found["trained"], found.get("rows", "?"), threshold)
     return Model(model=model, names=names, trained=str(found["trained"]),
                  metrics=dict(found.get("metrics") or {}),
-                 rows=int(found.get("rows") or 0))
+                 rows=int(found.get("rows") or 0), threshold=threshold)
 
 
 def held(path: str | Path | None = None) -> Model:
@@ -151,9 +174,19 @@ def reset() -> None:
 
 
 def score(report: Report, path: str | Path | None = None) -> int:
-    """The calibrated 0 to 100 score for one audit report.
+    """The calibrated probability for one audit report, as 0 to 100.
 
     The feature vector is module 5.2's own, so the runtime and the training set
     are built by the same code and cannot drift apart.
     """
     return held(path).score(features.vector(report))
+
+
+def estimate(report: Report, path: str | Path | None = None) -> tuple[float, float]:
+    """The probability this project deploys, and the operating point it faces.
+
+    What module 4.3 asks for. Both come from the one held artifact, so the
+    estimate is always judged against the threshold chosen for that model.
+    """
+    made = held(path)
+    return made.chance(features.vector(report)), made.threshold
