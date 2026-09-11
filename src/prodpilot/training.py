@@ -23,10 +23,20 @@ On the full labelled dataset, 684 rows of real Render outcomes, every choice was
 made by cross validation on the training rows only, and the held out rows were
 used once, to report the model that was chosen.
 
+That selection was run on corrected features. The 186 synthetic negatives had
+first been audited as plain folders with no git history, while the real
+repositories were git clones, so a git history rule was skipped for every
+negative and assessed for every real repository. That made assessed_git_hygiene
+tell the two apart, and it became the strongest feature for a reason that had
+nothing to do with deploying. The negatives were re-audited with a one commit
+history, the same shape as the depth one clones the real repositories came from
+and the way the negatives were actually deployed, and the feature fell from the
+top of the importances to near the bottom.
+
 A grid search of 32 combinations around scikit-learn's defaults picked the
-values in PARAMS. It barely moved the cross validated PR AUC, 0.507 for the
-defaults against 0.514 tuned, well inside the spread between folds, so the honest
-reading is that the defaults were already close to right. The tuned values are
+values in PARAMS. It moved the cross validated PR AUC from 0.506 for the
+defaults to 0.525 tuned, inside the spread between folds, so the honest reading
+is that the defaults were already close to right. The tuned values are
 kept because the procedure chose them, not because they are much better.
 
 Why the imbalance is handled at the threshold, not with weights
@@ -34,7 +44,7 @@ Why the imbalance is handled at the threshold, not with weights
 An earlier version weighted each row by the inverse frequency of its class.
 Measured on the real dataset, that bought nothing in ranking, the PR AUC was
 within noise either way, and it inflated every probability the gate reads: its
-Brier score was 0.158 against 0.121 once calibrated without weights. So the
+Brier score was 0.166 against 0.120 once calibrated without weights. So the
 model is trained on the data as it is and calibrated to the real deploy rate,
 and the imbalance is handled where it belongs, in the decision threshold.
 
