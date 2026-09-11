@@ -25,6 +25,7 @@ from apply import write
 from prodpilot.dispatch import Fix, Form
 from prodpilot.rules import FixType
 from prodpilot.server import (
+    DEPLOY_TOOL_NAME,
     DETECT_STACK_TOOL_NAME,
     FIX_APPLIED_TOOL_NAME,
     FIX_INSTRUCTION_TOOL_NAME,
@@ -334,3 +335,14 @@ async def test_asking_applying_and_reporting_resolves_a_rule(tmp_path) -> None:
         assert after["outcome"] == "resolved"
         assert after["verified"] is True
         assert (project / ".dockerignore").is_file()
+
+
+async def test_the_deploy_tool_is_discoverable_and_asks_for_confirmation() -> None:
+    async with connected_session() as client:
+        listed = await client.list_tools()
+        tools = {tool.name: tool for tool in listed.tools}
+
+        assert DEPLOY_TOOL_NAME in tools
+        props = tools[DEPLOY_TOOL_NAME].input_schema["properties"]
+        assert "project_path" in props and "branch" in props
+        assert "confirm with the developer" in tools[DEPLOY_TOOL_NAME].description

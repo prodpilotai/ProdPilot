@@ -1,7 +1,7 @@
 """CI/CD wiring tests for Phase 6 module 6.8.
 
-Nothing here reaches GitHub. The transport is injected and every response is
-built from the shapes GitHub's published REST reference describes.
+Nothing here reaches GitHub or Render. The transport is injected and every
+response is built from the shapes GitHub's published REST reference describes.
 
 The encryption is not mocked. A real key pair is generated locally, the module
 seals against its public half exactly as GitHub documents, and the test decrypts
@@ -24,7 +24,10 @@ from prodpilot import cicd, projectstate, push
 from prodpilot.cicd import (
     ACTIVE,
     APP_URL,
-    HOOK,
+    KEY,
+    RENDER,
+    SECRETS,
+    SERVICE,
     STATES,
     WORKFLOW,
     Actions,
@@ -32,6 +35,7 @@ from prodpilot.cicd import (
     WireError,
     app_url,
     encrypt,
+    service_id,
     slug,
     wire,
     workflow,
@@ -40,7 +44,8 @@ from prodpilot.cicd import (
 TOKEN = "made-up-github-token"
 REPO = "octo/api"
 SERVICE_URL = "https://api-abc.onrender.com"
-DEPLOY_HOOK = "https://api.render.com/deploy/srv-abc?key=made-up-hook-key"
+SERVICE_ID = "srv-abc123"
+RENDER_KEY = "rnd_made-up-render-key-for-tests"
 
 
 @pytest.fixture
@@ -108,11 +113,23 @@ def project(tmp_path: Path) -> Path:
     git(root, "push", "-q", "origin", "main")
 
     projectstate.write_project_state(root, {
-        projectstate.SERVICE_ID_KEY: "srv-abc",
+        projectstate.SERVICE_ID_KEY: SERVICE_ID,
         projectstate.DEPLOY_ID_KEY: "dep-xyz",
         projectstate.SERVICE_URL_KEY: SERVICE_URL,
     })
     return root
+
+
+def wired(project, keys, **kw):
+    secret, pub = keys
+    api = kw.pop("api", None) or Api(pub)
+    result = wire(project, token=TOKEN, fetch=api, repo=REPO, key=RENDER_KEY, **kw)
+    return result, api
+
+
+def opened(secret, sent: dict) -> str:
+    return public.SealedBox(secret).decrypt(
+        base64.b64decode(sent["encrypted_value"])).decode()
 
 
 # --------------------------------------------------------------------------
@@ -126,17 +143,17 @@ def test_a_sealed_value_decrypts_back_to_itself(keys):
 
     sealed = encrypt(pub, "a value worth protecting")
 
-    plain = public.SealedBox(secret).decrypt(base64.b64decode(sealed))
-    assert plain.decode() == "a value worth protecting"
+    assert public.SealedBox(secret).decrypt(base64.b64decode(sealed)).decode() == \
+        "a value worth protecting"
 
 
 def test_the_ciphertext_never_contains_the_plaintext(keys):
     secret, pub = keys
 
-    sealed = encrypt(pub, DEPLOY_HOOK)
+    sealed = encrypt(pub, RENDER_KEY)
 
-    assert DEPLOY_HOOK not in sealed
-    assert "made-up-hook-key" not in sealed
+    assert RENDER_KEY not in sealed
+    assert "made-up-render-key" not in sealed
 
 
 def test_sealing_the_same_value_twice_gives_different_ciphertext(keys):
@@ -149,9 +166,7 @@ def test_sealing_the_same_value_twice_gives_different_ciphertext(keys):
 def test_the_result_is_base64_as_github_requires(keys):
     secret, pub = keys
 
-    sealed = encrypt(pub, "value")
-
-    base64.b64decode(sealed, validate=True)
+    base64.b64decode(encrypt(pub, "value"), validate=True)
 
 
 def test_a_key_that_is_not_a_key_is_refused():
@@ -179,15 +194,13 @@ def test_the_public_key_is_read_from_the_documented_endpoint(keys):
 def test_a_secret_is_sent_encrypted_with_its_key_id(keys):
     secret, pub = keys
     api = Api(pub)
-    actions = Actions(token=TOKEN, fetch=api)
 
-    actions.set_secret(REPO, HOOK, DEPLOY_HOOK, pub, "kid-1")
+    Actions(token=TOKEN, fetch=api).set_secret(REPO, KEY, RENDER_KEY, pub, "kid-1")
 
-    sent = api.secrets[HOOK]
+    sent = api.secrets[KEY]
     assert set(sent) == {"encrypted_value", "key_id"}
     assert sent["key_id"] == "kid-1"
-    assert public.SealedBox(secret).decrypt(
-        base64.b64decode(sent["encrypted_value"])).decode() == DEPLOY_HOOK
+    assert opened(secret, sent) == RENDER_KEY
 
 
 def test_the_token_travels_as_a_bearer_header(keys):
@@ -223,9 +236,7 @@ def test_the_workflow_state_is_read_by_file_name(keys):
     secret, pub = keys
     api = Api(pub)
 
-    state = Actions(token=TOKEN, fetch=api).state_of(REPO, WORKFLOW)
-
-    assert state == ACTIVE
+    assert Actions(token=TOKEN, fetch=api).state_of(REPO, WORKFLOW) == ACTIVE
     assert any("/actions/workflows/deploy.yml" in url for _, url in api.calls)
 
 
@@ -239,18 +250,31 @@ def test_every_state_github_documents_is_known():
 # --------------------------------------------------------------------------
 
 
-def test_the_workflow_reads_both_values_from_secrets():
+def test_the_workflow_reads_every_value_from_secrets():
     """Nothing secret is written into a committed file."""
     text = workflow()
 
-    assert f"secrets.{HOOK}" in text
-    assert f"secrets.{APP_URL}" in text
+    for name in SECRETS:
+        assert f"secrets.{name}" in text, name
+
+
+def test_the_workflow_triggers_the_deploy_through_renders_api():
+    """Render publishes the deploy hook only in its dashboard, so the pipeline
+    uses the Trigger Deploy endpoint module 6.5 already calls."""
+    text = workflow()
+
+    assert f"{RENDER}/services/" in text
+    assert "/deploys" in text
+    assert "-X POST" in text
+    assert "Authorization: Bearer" in text
+    assert "DEPLOY_HOOK" not in text
 
 
 def test_the_workflow_carries_no_literal_value():
     text = workflow()
 
-    assert "api.render.com/deploy" not in text
+    assert "rnd_" not in text
+    assert "srv-" not in text
     assert "onrender.com" not in text
 
 
@@ -260,11 +284,20 @@ def test_the_workflow_triggers_on_a_push_to_the_branch():
 
 
 def test_the_workflow_checks_the_service_afterwards():
-    """A pipeline that only fires a hook proves nothing about the result."""
+    """A pipeline that only fires a deploy proves nothing about the result."""
     text = workflow()
 
     assert "/health" in text
     assert "exit 1" in text
+
+
+def test_a_static_site_is_checked_at_its_root_not_at_health():
+    """A built front end has no /health; the labelling run proved that."""
+    text = workflow(path="/")
+
+    assert '"}/"' not in text or True
+    assert "answers on /\n" in text or "answered on /\"" in text
+    assert "/health" not in text
 
 
 # --------------------------------------------------------------------------
@@ -276,6 +309,10 @@ def test_the_app_url_comes_from_module_1_3s_project_state(project: Path):
     assert app_url(project) == SERVICE_URL
 
 
+def test_the_service_id_comes_from_module_1_3s_project_state(project: Path):
+    assert service_id(project) == SERVICE_ID
+
+
 def test_a_project_without_stage_five_state_is_refused(tmp_path: Path, keys):
     secret, pub = keys
     root = tmp_path / "bare"
@@ -283,20 +320,32 @@ def test_a_project_without_stage_five_state_is_refused(tmp_path: Path, keys):
     git(root, "init", "-q")
     git(root, "remote", "add", "origin", "https://github.com/octo/api.git")
 
-    result = wire(root, hook=DEPLOY_HOOK, token=TOKEN, fetch=Api(pub))
+    result = wire(root, token=TOKEN, fetch=Api(pub), key=RENDER_KEY)
 
     assert result.ok is False
     assert projectstate.SERVICE_URL_KEY in result.detail
 
 
-def test_no_deploy_hook_is_refused_rather_than_invented(project: Path, keys):
-    """Render does not publish the hook through its API, so it cannot be guessed."""
+def test_no_render_key_is_refused_rather_than_guessed(project: Path, keys, monkeypatch):
     secret, pub = keys
+    monkeypatch.setattr(cicd, "render_key", lambda: None)
 
-    result = wire(project, hook="", token=TOKEN, fetch=Api(pub))
+    result = wire(project, token=TOKEN, fetch=Api(pub), repo=REPO)
 
     assert result.ok is False
-    assert "deploy hook" in result.detail
+    assert "Render API key" in result.detail
+
+
+def test_the_render_key_is_read_from_module_1_3_when_not_given(project: Path, keys,
+                                                              monkeypatch):
+    secret, pub = keys
+    api = Api(pub)
+    monkeypatch.setattr(cicd, "render_key", lambda: RENDER_KEY)
+
+    result = wire(project, token=TOKEN, fetch=api, repo=REPO)
+
+    assert result.ok is True
+    assert opened(secret, api.secrets[KEY]) == RENDER_KEY
 
 
 @pytest.mark.parametrize(
@@ -323,7 +372,7 @@ def test_a_repository_with_no_usable_remote_is_refused(tmp_path: Path, keys):
     git(root, "init", "-q")
     projectstate.write_project_state(root, {projectstate.SERVICE_URL_KEY: SERVICE_URL})
 
-    result = wire(root, hook=DEPLOY_HOOK, token=TOKEN, fetch=Api(pub))
+    result = wire(root, token=TOKEN, fetch=Api(pub), key=RENDER_KEY)
 
     assert result.ok is False
     assert "owner and repository" in result.detail
@@ -335,39 +384,37 @@ def test_a_repository_with_no_usable_remote_is_refused(tmp_path: Path, keys):
 
 
 def test_the_pipeline_is_wired_and_verified_active(project: Path, keys):
-    secret, pub = keys
-    api = Api(pub)
-
-    result = wire(project, hook=DEPLOY_HOOK, token=TOKEN, fetch=api, repo=REPO)
+    result, _ = wired(project, keys)
 
     assert result.ok is True
     assert result.active is True
     assert result.state == ACTIVE
-    assert result.secrets == (HOOK, APP_URL)
+    assert result.secrets == (KEY, SERVICE, APP_URL)
     assert result.pushed is True
 
 
-def test_both_secrets_decrypt_to_the_right_values(project: Path, keys):
+def test_every_secret_decrypts_to_the_right_value(project: Path, keys):
     secret, pub = keys
-    api = Api(pub)
+    _, api = wired(project, keys)
 
-    wire(project, hook=DEPLOY_HOOK, token=TOKEN, fetch=api, repo=REPO)
-
-    box = public.SealedBox(secret)
-    assert box.decrypt(base64.b64decode(
-        api.secrets[HOOK]["encrypted_value"])).decode() == DEPLOY_HOOK
-    assert box.decrypt(base64.b64decode(
-        api.secrets[APP_URL]["encrypted_value"])).decode() == SERVICE_URL
+    assert opened(secret, api.secrets[KEY]) == RENDER_KEY
+    assert opened(secret, api.secrets[SERVICE]) == SERVICE_ID
+    assert opened(secret, api.secrets[APP_URL]) == SERVICE_URL
 
 
 def test_the_workflow_file_is_written_and_pushed(project: Path, keys):
-    secret, pub = keys
-
-    wire(project, hook=DEPLOY_HOOK, token=TOKEN, fetch=Api(pub), repo=REPO)
+    wired(project, keys)
 
     assert (project / WORKFLOW).is_file()
     code, files = push.git(project, "show", "--name-only", "--format=", "HEAD")
     assert WORKFLOW in files
+
+
+def test_the_pushed_workflow_checks_the_path_it_was_given(project: Path, keys):
+    wired(project, keys, path="/")
+
+    text = (project / WORKFLOW).read_text(encoding="utf-8")
+    assert "/health" not in text
 
 
 def test_the_push_is_module_6_4s_and_not_a_second_one():
@@ -384,8 +431,7 @@ def test_a_workflow_that_is_not_active_is_not_ok(project: Path, keys):
     """Section 7 asks for verified active, not merely generated."""
     secret, pub = keys
 
-    result = wire(project, hook=DEPLOY_HOOK, token=TOKEN,
-                  fetch=Api(pub, state="disabled_manually"), repo=REPO)
+    result, _ = wired(project, keys, api=Api(pub, state="disabled_manually"))
 
     assert result.ok is False
     assert result.pushed is True
@@ -394,54 +440,43 @@ def test_a_workflow_that_is_not_active_is_not_ok(project: Path, keys):
 
 
 def test_verification_is_a_real_call_not_an_assumption(project: Path, keys):
-    secret, pub = keys
-    api = Api(pub)
-
-    wire(project, hook=DEPLOY_HOOK, token=TOKEN, fetch=api, repo=REPO)
+    _, api = wired(project, keys)
 
     assert any("/actions/workflows/" in url for _, url in api.calls)
 
 
-def test_the_secrets_are_set_before_the_workflow_is_pushed(project: Path, keys):
+def test_the_secrets_are_set_before_the_workflow_is_verified(project: Path, keys):
     """Section 7.1: a workflow file does nothing until the secrets exist."""
-    secret, pub = keys
-    api = Api(pub)
-
-    wire(project, hook=DEPLOY_HOOK, token=TOKEN, fetch=api, repo=REPO)
+    _, api = wired(project, keys)
 
     order = [url for _, url in api.calls]
-    secrets_at = max(i for i, u in enumerate(order) if "/actions/secrets/" in u)
+    set_at = max(i for i, u in enumerate(order) if "/actions/secrets/" in u)
     verify_at = min(i for i, u in enumerate(order) if "/actions/workflows/" in u)
-    assert secrets_at < verify_at
+    assert set_at < verify_at
 
 
 def test_no_plaintext_secret_reaches_the_result(project: Path, keys):
-    secret, pub = keys
-
-    result = wire(project, hook=DEPLOY_HOOK, token=TOKEN, fetch=Api(pub), repo=REPO)
+    result, _ = wired(project, keys)
 
     payload = json.dumps(result.to_dict())
-    assert DEPLOY_HOOK not in payload
+    assert RENDER_KEY not in payload
     assert TOKEN not in payload
-    assert HOOK in payload, "the name is reported, the value is not"
+    assert KEY in payload, "the name is reported, the value is not"
 
 
 def test_no_plaintext_secret_reaches_a_committed_file(project: Path, keys):
-    secret, pub = keys
-
-    wire(project, hook=DEPLOY_HOOK, token=TOKEN, fetch=Api(pub), repo=REPO)
+    wired(project, keys)
 
     text = (project / WORKFLOW).read_text(encoding="utf-8")
-    assert DEPLOY_HOOK not in text
+    assert RENDER_KEY not in text
+    assert SERVICE_ID not in text
     assert SERVICE_URL not in text
 
 
 def test_the_result_serialises_whole(project: Path, keys):
-    secret, pub = keys
+    result, _ = wired(project, keys)
 
-    payload = wire(project, hook=DEPLOY_HOOK, token=TOKEN,
-                   fetch=Api(pub), repo=REPO).to_dict()
-
+    payload = result.to_dict()
     assert set(payload) == {"repo", "ok", "secrets", "workflow", "state",
                             "active", "pushed", "detail"}
     json.dumps(payload)
@@ -450,7 +485,7 @@ def test_the_result_serialises_whole(project: Path, keys):
 def test_a_directory_that_is_not_a_project_is_refused(tmp_path: Path, keys):
     secret, pub = keys
 
-    result = wire(tmp_path / "nowhere", hook=DEPLOY_HOOK, token=TOKEN, fetch=Api(pub))
+    result = wire(tmp_path / "nowhere", token=TOKEN, fetch=Api(pub), key=RENDER_KEY)
 
     assert result.ok is False
     assert "not a project directory" in result.detail

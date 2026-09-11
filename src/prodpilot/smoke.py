@@ -245,20 +245,24 @@ def probe(fetch: Fetch, base: str, window: float = WINDOW,
             None, attempts, clock() - started)
 
 
-def api(fetch: Fetch, base: str) -> tuple[Probe, Answer | None]:
-    """GET /api, which must answer with neither 404 nor 500."""
-    url = base.rstrip("/") + API
+def api(fetch: Fetch, base: str, path: str = API) -> tuple[Probe, Answer | None]:
+    """GET the API route, which must answer with neither 404 nor 500.
+
+    path is /api, as Section 7 names it, unless the caller knows the project
+    serves its API elsewhere, for example under a versioned prefix.
+    """
+    url = base.rstrip("/") + path
     try:
         answer = fetch(url)
     except Exception as exc:
-        return Probe(Check.API, False, f"{API} could not be reached: {exc}"), None
+        return Probe(Check.API, False, f"{path} could not be reached: {exc}"), None
 
     if answer.status == 404:
-        return Probe(Check.API, False, f"{API} returned 404, the route is not served"), answer
+        return Probe(Check.API, False, f"{path} returned 404, the route is not served"), answer
     if answer.status >= 500:
         return Probe(Check.API, False,
-                     f"{API} returned {answer.status}, the service errored"), answer
-    return Probe(Check.API, True, f"{API} returned {answer.status}"), answer
+                     f"{path} returned {answer.status}, the service errored"), answer
+    return Probe(Check.API, True, f"{path} returned {answer.status}"), answer
 
 
 def headers(answers: list[Answer]) -> Probe:
@@ -310,8 +314,10 @@ def traces(answers: list[Answer]) -> Probe:
 def run(url: str, fetch: Fetch = send, window: float = WINDOW,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
-        health: str = HEALTH) -> Smoke:
+        health: str = HEALTH, endpoint: str = API) -> Smoke:
     """Run all five checks against a live deployment.
+
+    endpoint is the API route the second check asks for, /api by default.
 
     Never raises. A service that cannot be reached is a failed health check, not
     an exception, so a caller always gets a report it can show a developer.
@@ -334,7 +340,7 @@ def run(url: str, fetch: Fetch = send, window: float = WINDOW,
         logger.warning("%s", result.report())
         return result
 
-    root, answer = api(fetch, url)
+    root, answer = api(fetch, url, endpoint)
     if answer is not None:
         answers.append(answer)
 

@@ -477,8 +477,8 @@ def test_stage_eight_wires_a_pipeline_for_a_service_the_second_provider_made(rep
             return cicd.Reply(201, b"")
         return cicd.Reply(200, json.dumps({"state": "active"}).encode())
 
-    wired = cicd.wire(repo, hook="https://hook.example/deploy", token="t",
-                      fetch=fetch, repo="octo/api")
+    wired = cicd.wire(repo, token="t", fetch=fetch, repo="octo/api",
+                      key="made-up-render-key")
 
     assert wired.ok is True
     box = public.SealedBox(secret)

@@ -426,3 +426,25 @@ def test_asking_for_a_check_that_does_not_exist_is_refused():
 
 def test_an_empty_smoke_is_not_confirmed():
     assert Smoke(URL).confirmed is False
+
+
+def test_the_api_route_can_be_one_the_project_actually_serves():
+    """A versioned project answers /api with 404 by design, so the caller names its route."""
+    sent = {name: "set" for name in SECURITY_HEADERS}
+    sent["access-control-allow-origin"] = "*"
+    asked: list[str] = []
+
+    def fetch(url: str) -> smoke.Answer:
+        asked.append(url)
+        if url.endswith("/api"):
+            return smoke.Answer(404, dict(sent), "")
+        return smoke.Answer(200, dict(sent), '{"status":"ok"}')
+
+    default = smoke.run("https://x.test", fetch=fetch, sleep=lambda s: None,
+                        clock=lambda: 0.0)
+    versioned = smoke.run("https://x.test", fetch=fetch, sleep=lambda s: None,
+                          clock=lambda: 0.0, endpoint="/api/v1")
+
+    assert not default.confirmed
+    assert versioned.confirmed, versioned.report()
+    assert asked[-1] == "https://x.test/api/v1"

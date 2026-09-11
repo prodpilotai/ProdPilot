@@ -50,8 +50,10 @@ from prodpilot import (
     buildtest,
     cicd,
     config,
+    gate,
     monitor,
     preflight,
+    prodpush,
     projectstate,
     push,
     render,
@@ -68,7 +70,6 @@ SOURCE = SAMPLES / "node_express_ready"
 
 GITHUB = "https://github.com/octo/payments-api.git"
 REPO = "octo/payments-api"
-HOOK = "https://api.render.com/deploy/srv-e2e?key=made-up-hook-key"
 TOKEN = "made-up-github-token"
 KEY = "made-up-render-key"
 
@@ -293,8 +294,7 @@ def test_the_stages_chain_from_pre_flight_to_a_wired_pipeline(project):
     key = secret.public_key.encode(encoding.Base64Encoder()).decode()
     hub, secrets = github_api(key)
 
-    wired = cicd.wire(root, hook=HOOK, token=TOKEN, fetch=hub, repo=REPO,
-                      branch="main")
+    wired = cicd.wire(root, token=TOKEN, fetch=hub, repo=REPO, branch="main")
     assert wired.ok is True, wired.detail
     assert wired.active is True
     assert wired.pushed is True
@@ -420,3 +420,184 @@ def test_a_port_the_container_does_not_expose_is_caught(project):
     assert built.ok is True
     assert built.health is not None and built.health.ok is False
     assert built.fault is buildtest.Fault.PORT
+
+
+# --------------------------------------------------------------------------
+# prodpush.run, the whole pipeline in one call
+#
+# The tests above chain the stages by hand. These call the pipeline itself,
+# starting at the scoring gate, on a project that passes it: the demo API after
+# ProdPilot's own fix loop took it from 69 to 100.
+#
+# Beyond the three substitutions the chain test makes, two more inputs are
+# fixed here. The model the gate consults beside the audit is fixed, so the
+# suite does not depend on the real dataset, while the score and the blocker
+# check still run on a real audit. The local build is supplied, since stage 3
+# needs a Docker daemon and has its own tests above. Every stage still runs its
+# own code, and the push is real, into a bare mirror, redirected by git's own
+# pushInsteadOf so the origin stays the GitHub remote both pre-flight and the
+# CI/CD stage read.
+# --------------------------------------------------------------------------
+
+GATED = SAMPLES / "node_express_gated"
+DEMO = "https://github.com/octo/demo-api.git"
+LIVE = "https://demo-api.onrender.com"
+
+SHIPPED = {
+    "/deploys/": (200, {"id": "dep-demo", "status": "live"}),
+    "/logs": (200, {"logs": [{"message": "npm ERR! build failed"}]}),
+    "/owners": (200, [{"owner": {"id": "tea-demo", "name": "Team",
+                                 "email": "t@example.com", "type": "team"},
+                       "cursor": "c"}]),
+    "/services": (201, {"service": {"id": "srv-demo", "name": "demo-api",
+                                    "serviceDetails": {"url": LIVE}},
+                        "deployId": "dep-demo"}),
+}
+
+
+def healthy(root, env=None) -> buildtest.Build:
+    """Stage 3's result for a container that built and answered its health path."""
+    return buildtest.Build(Path(root).name, True, image="demo-api:test",
+                           health=buildtest.Health(True, "http://localhost:10000/health", 200))
+
+
+@pytest.fixture
+def shippable(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+    """The gated demo, committed, with pushes to its GitHub origin landing locally."""
+    monkeypatch.setenv(config.CONFIG_HOME_ENV_VAR, str(tmp_path / "home"))
+    config.save_credentials(config.Credentials(github_token=TOKEN, render_api_key=KEY))
+    monkeypatch.setattr(gate, "estimate", lambda result: (0.9, 0.3))
+
+    root = tmp_path / "demo-api"
+    shutil.copytree(GATED, root)
+    (root / ".env").write_text("PORT=10000\nCORS_ORIGIN=https://app.example.com\n",
+                               encoding="utf-8")
+
+    mirror = tmp_path / "mirror.git"
+    subprocess.run(("git", "init", "--bare", "-q", str(mirror)),
+                   check=True, capture_output=True)
+    subprocess.run(("git", "-C", str(mirror), "symbolic-ref", "HEAD",
+                    "refs/heads/main"), check=True, capture_output=True)
+
+    git(root, "init", "-q")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "config", "user.name", "Test")
+    git(root, "remote", "add", "origin", DEMO)
+    git(root, "config", f"url.{mirror.as_posix()}.pushInsteadOf",
+        push.authed(push.https_url(DEMO), TOKEN))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "the application")
+    git(root, "branch", "-M", "main")
+    return root, mirror
+
+
+def ship(root: Path, routes=None, key: str = "", **overrides):
+    """Run the pipeline with every outside service scripted, recording each one."""
+    fetch, calls = render_api(routes or SHIPPED)
+    bodies: list[bytes] = []
+
+    def recording(url, method, headers, body):
+        if body:
+            bodies.append(body)
+        return fetch(url, method, headers, body)
+
+    probe, asked = served(LIVE)
+    hub, secrets = github_api(key or "0" * 44)
+    options = dict(provider=Render(api_key=KEY, fetch=recording), fetch=probe,
+                   github=hub, token=TOKEN, build=healthy,
+                   sleep=lambda s: None, clock=lambda: 0.0)
+    options.update(overrides)
+    shipped = prodpush.run(root, **options)
+    return shipped, calls, bodies, asked, secrets
+
+
+def test_prodpush_takes_a_gated_project_to_a_wired_deployment(shippable):
+    """Phase 6's exit criterion, in one call, from the gate to an active pipeline."""
+    from nacl import encoding, public
+
+    root, mirror = shippable
+    secret = public.PrivateKey.generate()
+    key = secret.public_key.encode(encoding.Base64Encoder()).decode()
+
+    shipped, calls, bodies, asked, secrets = ship(root, key=key)
+
+    assert shipped.ok is True, shipped.summary()
+    assert [s.stage for s in shipped.steps] == list(prodpush.ORDER)
+    assert all(s.ran and s.ok for s in shipped.steps), shipped.to_dict()
+    assert shipped.url == LIVE and shipped.service_id == "srv-demo"
+    assert projectstate.read_project_state(root)[projectstate.SERVICE_URL_KEY] == LIVE
+
+    # Stage 5 created a web service from the sealed values and nothing else.
+    created = json.loads(next(b for b in bodies if b"serviceDetails" in b).decode())
+    assert created["type"] == "web_service"
+    assert created["serviceDetails"]["envSpecificDetails"]["startCommand"] == "npm start"
+    assert {v["key"] for v in created["envVars"]} == {"PORT", "CORS_ORIGIN"}
+
+    # Stage 7 asked for the health path and for the versioned route the fixed
+    # project serves, not for the /api it no longer answers.
+    assert asked == [f"{LIVE}/health", f"{LIVE}/api/v1"]
+
+    # Stage 8 sealed the URL stage 5 returned, and its workflow reached the remote.
+    box = public.SealedBox(secret)
+    import base64
+    assert box.decrypt(base64.b64decode(
+        secrets[cicd.APP_URL]["encrypted_value"])).decode() == LIVE
+    assert set(secrets) == set(cicd.SECRETS)
+    code, listed = push.git(mirror, "ls-tree", "-r", "--name-only", "main")
+    assert code == 0
+    assert cicd.WORKFLOW in listed.split("\n")
+    assert ".env" not in listed.split("\n")
+    assert ".env.production" not in listed.split("\n")
+
+
+def test_a_project_the_gate_refuses_never_reaches_render(shippable, monkeypatch):
+    root, mirror = shippable
+    monkeypatch.setattr(gate, "estimate", lambda result: (0.05, 0.3))
+
+    shipped, calls, _, asked, _ = ship(root)
+
+    assert shipped.ok is False
+    assert shipped.failed.stage is prodpush.Stage.GATE
+    assert "operating point" in shipped.failed.detail
+    assert [s.ran for s in shipped.steps] == [True] + [False] * (len(prodpush.ORDER) - 1)
+    assert calls == [] and asked == []
+    code, _ = push.git(mirror, "rev-parse", "--verify", "main")
+    assert code != 0, "nothing may be pushed for a project the gate refused"
+
+
+def test_uncommitted_developer_work_stops_the_run_before_the_push(shippable):
+    """ProdPilot commits what it generated, never the developer's own source."""
+    root, mirror = shippable
+    server = root / "src" / "server.js"
+    server.write_text(server.read_text(encoding="utf-8") + "// work in progress\n",
+                      encoding="utf-8")
+
+    shipped, calls, _, _, _ = ship(root)
+
+    assert shipped.failed.stage is prodpush.Stage.PUSH
+    assert "src/server.js" in shipped.failed.detail
+    assert not any(m == "POST" for m, _ in calls)
+    code, _ = push.git(mirror, "rev-parse", "--verify", "main")
+    assert code != 0
+
+
+def test_a_failed_deploy_stops_at_monitoring_and_says_why(shippable):
+    root, _ = shippable
+    routes = dict(SHIPPED)
+    routes["/deploys/"] = (200, {"id": "dep-demo", "status": "build_failed"})
+
+    shipped, _, _, asked, secrets = ship(root, routes=routes)
+
+    assert shipped.failed.stage is prodpush.Stage.MONITOR
+    assert shipped.service_id == "srv-demo", "the service it made is still reported"
+    assert asked == [] and secrets == {}
+    reached = {s.stage: s.ran for s in shipped.steps}
+    assert reached[prodpush.Stage.SMOKE] is False
+    assert reached[prodpush.Stage.CICD] is False
+
+
+def test_the_smoke_route_follows_the_project(tmp_path: Path):
+    """The versioned route for a fixed Express project, the root for a front end."""
+    assert prodpush.route(GATED, "node_express") == "/api/v1"
+    assert prodpush.route(GATED, "react_vite") == "/"
+    assert prodpush.route(SAMPLES / "node_express_insecure", "node_express") == smoke.API

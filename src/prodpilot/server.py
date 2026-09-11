@@ -17,16 +17,22 @@ the instruction and then reporting back, so each direction is its own tool.
 Module 3.6 supplies the verifier. The tool that reports an applied fix builds
 one for the project it was given and answers from what that verifier finds, so
 the agent's own report never decides the outcome.
+
+Phase 6 contributes the deploy tool. It runs the whole ProdPush pipeline, from
+the scoring gate to a smoke tested Render service with an active CI/CD pipeline,
+and reports how far the project got. It creates real infrastructure, so its
+description says so and asks the agent to confirm with the developer first.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
 
-from prodpilot import __version__, audit, dispatch, verify
+from prodpilot import __version__, audit, dispatch, prodpush, verify
 from prodpilot.constraints import ContractError
 from prodpilot.detection import DetectionError, detect_stack
 from prodpilot.dispatch import Claim, DispatchError
@@ -42,19 +48,30 @@ SERVER_INSTRUCTIONS = (
     "ProdPilot audits a project for production readiness, drives the fixes "
     "through your agent, and deploys the result. This build exposes a "
     "connectivity check, stack detection with the matching production "
-    "blueprint, and the two fix loop tools: ask for the fix instruction for a "
-    "failing rule, apply exactly what it says, then report back. Deployment is "
-    "not wired yet."
+    "blueprint, the two fix loop tools: ask for the fix instruction for a "
+    "failing rule, apply exactly what it says, then report back, and the "
+    "deploy tool, which takes a project that passes the scoring gate to a "
+    "live Render service. Confirm with the developer before deploying."
 )
 
 PING_TOOL_NAME = "prodpilot_ping"
 DETECT_STACK_TOOL_NAME = "prodpilot_detect_stack"
 FIX_INSTRUCTION_TOOL_NAME = "prodpilot_fix_instruction"
 FIX_APPLIED_TOOL_NAME = "prodpilot_fix_applied"
+DEPLOY_TOOL_NAME = "prodpilot_deploy"
 
 # The fix producing modules each refuse in their own way. All three refusals
 # mean the same thing to a caller: no instruction, and this rule needs a person.
 FIX_ERRORS = (DispatchError, TemplateError, ExtractError, ContractError)
+
+# Each rule's status when an instruction was handed out, keyed by project and
+# rule, so the report of the applied change can be checked for regressions the
+# same way dispatch.Fixer checks them in process.
+STANDING: dict[tuple[str, str], dict] = {}
+
+
+def where(project_path: str) -> str:
+    return str(Path(project_path).expanduser().resolve())
 
 
 def build_server() -> MCPServer:
@@ -90,8 +107,8 @@ def register_tools(server: MCPServer) -> None:
             "version": __version__,
             "transport": "stdio",
             "detail": (
-                "ProdPilot MCP server is running. Audit, fix loop, and "
-                "deployment tools are not implemented yet."
+                "ProdPilot MCP server is running. Stack detection, the fix "
+                "loop, and deployment are available."
             ),
         }
 
@@ -167,6 +184,7 @@ def register_tools(server: MCPServer) -> None:
             logger.warning("%s refused %s: %s", FIX_INSTRUCTION_TOOL_NAME, rule_id, exc)
             return {"ok": False, "error": str(exc), "fix": None}
 
+        STANDING[(where(project_path), rule_id)] = dispatch.statuses(report)
         return {"ok": True, "error": None, "fix": fix.to_dict()}
 
     @server.tool(
@@ -219,17 +237,60 @@ def register_tools(server: MCPServer) -> None:
             applied,
             result.status.value,
         )
+        outcome, detail = step.outcome.value, step.detail
+
+        # The checker answers for this rule only. A change that broke a rule
+        # which passed when the instruction was handed out is not a fix, so it
+        # is blocked and the agent is told to undo it.
+        broke: tuple[str, ...] = ()
+        before = STANDING.get((where(project_path), rule_id))
+        if before is not None:
+            after = dispatch.standing(project_path)
+            if after is not None:
+                broke = dispatch.broken(before, after, rule_id)
+        if broke:
+            outcome = "blocked"
+            detail = (f"the change broke {', '.join(broke)}, which passed before it. "
+                      f"Undo the change and leave {rule_id} for manual review.")
+            logger.warning("%s: %s", rule_id, detail)
         return {
             "ok": True,
             "error": None,
             "rule_id": rule_id,
             "attempt": attempt,
-            "outcome": step.outcome.value,
-            "detail": step.detail,
-            "verified": result.passed,
+            "outcome": outcome,
+            "detail": detail,
+            "verified": result.passed and not broke,
+            "regressed": list(broke),
             "verdict": result.to_dict(),
             "claim": claim.to_dict(),
         }
+
+    @server.tool(
+        name=DEPLOY_TOOL_NAME,
+        title="Deploy a project that passes the scoring gate",
+        description=(
+            "Run the ProdPush pipeline on a project: the scoring gate, "
+            "pre-flight checks, environment sealing, a local Docker build "
+            "test, a push of the generated files, a Render deployment, deploy "
+            "monitoring, a post-deploy smoke test, and CI/CD wiring. Stops at "
+            "the first stage that fails and says which one and why. This "
+            "creates a real Render service and pushes to the project's GitHub "
+            "repository, so confirm with the developer before calling it. "
+            "Commit your own changes first: a working tree holding "
+            "uncommitted changes outside ProdPilot's generated files is not "
+            "deployed."
+        ),
+    )
+    def prodpilot_deploy(project_path: str, branch: str = "main") -> dict[str, Any]:
+        """Take project_path from the gate to a live, wired deployment.
+
+        project_path is an absolute or user-relative path to the project root.
+        branch is the branch pushed to and deployed from.
+        """
+        logger.info("%s called for %s on %s", DEPLOY_TOOL_NAME, project_path, branch)
+        shipped = prodpush.run(project_path, branch=branch)
+        return {**shipped.to_dict(), "summary": shipped.summary()}
 
 
 def run_stdio() -> None:

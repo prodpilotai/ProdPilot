@@ -1,30 +1,56 @@
 """CI/CD wiring, the eighth and last stage of ProdPush.
 
-Scope is Phase 6 module 6.8. Section 7 stage 8 states it: rewrite
-.github/workflows/deploy.yml with the real RENDER_DEPLOY_HOOK and APP_URL, set
-repository secrets programmatically through the GitHub API by encrypting each
-value as a libsodium sealed box against the repository public key, commit, push,
-and verify through the Actions API that the pipeline is active.
+Scope is Phase 6 module 6.8. Section 7 stage 8 states it: write
+.github/workflows/deploy.yml, set the repository secrets it needs through the
+GitHub API by encrypting each value as a libsodium sealed box against the
+repository public key, commit, push, and verify through the Actions API that
+the pipeline is active.
 
 Deploy first, wire second
 --------------------------
 Section 7.1 is the reason this is last. A workflow file sitting in a repository
 does nothing until the secrets exist and the service is known, so the first
 deployment goes through the Render API in module 6.5 and only then is the
-pipeline wired with what that returned. The build order of this phase already
-respects that, and this module reads the service URL module 6.5 stored rather
-than deploying anything itself.
+pipeline wired with what that returned. This module reads what module 6.5
+stored rather than deploying anything itself.
+
+Why the workflow calls Render's API rather than a deploy hook
+---------------------------------------------------------------
+Section 7 names a RENDER_DEPLOY_HOOK secret. Render publishes a service's deploy
+hook only on the Settings tab of its dashboard. Its API reference has no field
+or endpoint that returns it, and retrieving it programmatically is an open
+request on Render's own community forum. A pipeline built on the hook therefore
+needs a person to copy it by hand, and Phase 6's exit criterion is a deployment
+wired end to end without manual intervention.
+
+So the workflow triggers each deploy through Render's Trigger Deploy endpoint,
+POST /v1/services/{id}/deploys, which module 6.5 already uses and which was
+proven against the real API during labelling. It needs the Render API key and
+the service id, both of which ProdPilot already holds, so every secret is set by
+this module and nothing is copied by hand.
+
+The cost is stated rather than hidden. A Render API key is account wide, which
+is a broader secret than a per service hook. It is sealed before it leaves this
+machine, stored only as an encrypted repository secret, and never written to a
+file, a log or the returned result, and a developer who wants a narrower blast
+radius can give ProdPilot a key created for this purpose and revoke it at will.
+
+A service created from a public repository URL is deploy on request only, so
+this workflow is the one path by which a push reaches Render and a push never
+deploys twice.
 
 Where each value comes from
 ----------------------------
-APP_URL is the service URL module 6.5 wrote through module 1.3's project state,
-read back through the same convention. Nothing invents a second source for it.
+APP_URL and RENDER_SERVICE_ID are what module 6.5 wrote through module 1.3's
+project state, read back through the same convention. RENDER_API_KEY is the key
+module 1.3 stores. Nothing invents a second source for any of them.
 
-RENDER_DEPLOY_HOOK is supplied by the caller. Render's own documentation says
-the deploy hook is a secret found on the service's Settings tab in the
-dashboard, and does not document retrieving it through the REST API, so it is
-taken as an argument rather than a URL format guessed from a service id. Getting
-that wrong would write a broken pipeline that looks correct.
+Why the health check takes a path
+----------------------------------
+The workflow checks the service after each deploy. An Express service answers
+on /health, which module 2.2's OBS-001 requires of it. A built front end is a
+static site with no such route and answers at its root, so the caller passes
+the path the stack actually serves. The default is /health.
 
 Why the encryption is exactly GitHub's documented pattern
 -----------------------------------------------------------
@@ -34,25 +60,17 @@ PyNaCl's Base64Encoder, seal with SealedBox, base64 the ciphertext. That is what
 encrypt does, no more and no less. A sealed box is anonymous and one way, so
 nothing here can decrypt what it sends, which is the point.
 
-A plaintext secret never reaches a file, a log or the returned result. Only the
-ciphertext is sent, and the result carries the names of the secrets set and
-never their values.
-
 Why the push is module 6.4's
 -----------------------------
-The workflow file is a ProdPilot generated file, and .github/workflows/deploy.yml
-is already in module 6.4's GENERATED set because the DYNAMIC-PARAMETRIC shape
-that creates it declares that path. So this module writes the file and calls
-push.run, which stages it under the same rules, with the same ignore checks and
-the same commit message. A second push mechanism would be a second place to get
-staging wrong.
+.github/workflows/deploy.yml is already in module 6.4's GENERATED set, so this
+module writes the file and calls push.run, which stages it under the same rules,
+with the same ignore checks and the same commit message.
 
 Why the transport is not module 5.1's client
 ----------------------------------------------
 gh.Client offers GET only, by construction. Setting a secret is a PUT, so this
 module carries a small client of its own with an injected transport, the same
-shape module 6.5 uses for Render. Nothing in module 5.1 is changed to
-accommodate it.
+shape module 6.5 uses for Render.
 """
 
 from __future__ import annotations
@@ -77,8 +95,15 @@ VERSION = "2022-11-28"
 AGENT = "prodpilot-prodpush"
 
 WORKFLOW = ".github/workflows/deploy.yml"
-HOOK = "RENDER_DEPLOY_HOOK"
+KEY = "RENDER_API_KEY"
+SERVICE = "RENDER_SERVICE_ID"
 APP_URL = "APP_URL"
+SECRETS = (KEY, SERVICE, APP_URL)
+
+# The endpoint the workflow calls, module 6.5's own Trigger Deploy call.
+RENDER = "https://api.render.com/v1"
+
+HEALTH = "/health"
 
 # The Actions API reports one of five states for a workflow. Only the first
 # means the pipeline will actually run.
@@ -258,6 +283,15 @@ def stored() -> str | None:
         return None
 
 
+def render_key() -> str | None:
+    """The Render API key, read through module 1.3."""
+    try:
+        return load_credentials().render_api_key
+    except ConfigError as exc:
+        logger.warning("cannot read the credential store: %s", exc)
+        return None
+
+
 def said(reply: Reply) -> str:
     """The message GitHub gave, for an error a person has to read."""
     try:
@@ -269,12 +303,12 @@ def said(reply: Reply) -> str:
     return str(payload)[:200]
 
 
-def workflow(branch: str = "main") -> str:
+def workflow(branch: str = "main", path: str = HEALTH) -> str:
     """The pipeline that redeploys on a push and then checks the service.
 
-    Both values are read from repository secrets rather than written into the
-    file, so nothing secret is ever committed. The health check is what makes
-    this a pipeline rather than a fire and forget hook.
+    Every value is read from repository secrets rather than written into the
+    file, so nothing secret is ever committed. The check afterwards is what
+    makes this a pipeline rather than a fire and forget trigger.
     """
     return f"""name: Deploy
 
@@ -288,22 +322,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger the Render deploy
-        run: curl --fail --silent --show-error -X POST "${{{{ secrets.{HOOK} }}}}"
+        run: >-
+          curl --fail --silent --show-error -X POST
+          -H "Authorization: Bearer ${{{{ secrets.{KEY} }}}}"
+          -H "Accept: application/json"
+          "{RENDER}/services/${{{{ secrets.{SERVICE} }}}}/deploys"
 
-      - name: Wait for the service to come back
-        run: sleep 60
+      - name: Wait for the new deploy to go live
+        run: sleep 90
 
-      - name: Check the deployed service is healthy
+      - name: Check the deployed service answers on {path}
         run: |
-          for attempt in 1 2 3 4 5 6; do
-            if curl --fail --silent --show-error "${{{{ secrets.{APP_URL} }}}}/health"; then
-              echo "the service is healthy"
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if curl --fail --silent --show-error "${{{{ secrets.{APP_URL} }}}}{path}" > /dev/null; then
+              echo "the service answered on {path}"
               exit 0
             fi
-            echo "not healthy yet, waiting"
+            echo "no answer yet, waiting"
             sleep 15
           done
-          echo "the service did not become healthy"
+          echo "the service did not answer on {path}"
           exit 1
 """
 
@@ -314,13 +352,20 @@ def app_url(root: Path) -> str | None:
     return values.get(projectstate.SERVICE_URL_KEY) or None
 
 
-def wire(root: str | Path, hook: str, token: str | None = None,
-         fetch: Fetch = send, repo: str | None = None,
-         branch: str = "main") -> Wire:
-    """Write the workflow, set both secrets, push it, and verify it is active.
+def service_id(root: Path) -> str | None:
+    """The service id module 6.5 stored, read back the same way."""
+    values = projectstate.read_project_state(root)
+    return values.get(projectstate.SERVICE_ID_KEY) or None
 
-    hook is the Render deploy hook URL, which Render publishes on the service's
-    Settings tab and does not expose through its API.
+
+def wire(root: str | Path, token: str | None = None, fetch: Fetch = send,
+         repo: str | None = None, branch: str = "main", path: str = HEALTH,
+         key: str | None = None) -> Wire:
+    """Write the workflow, set its secrets, push it, and verify it is active.
+
+    path is where the deployed service answers when it is working, /health for
+    an Express service and the root for a built front end. key is the Render API
+    key, read from module 1.3 when not given.
 
     Never raises. A caller reads the result to decide what to tell a developer.
     """
@@ -329,8 +374,6 @@ def wire(root: str | Path, hook: str, token: str | None = None,
 
     if not base.is_dir():
         return Wire(name, False, detail=f"{base} is not a project directory")
-    if not hook:
-        return Wire(name, False, detail="no Render deploy hook was supplied")
 
     target = repo or slug(base)
     if not target:
@@ -338,10 +381,17 @@ def wire(root: str | Path, hook: str, token: str | None = None,
                     detail="the origin remote does not name a GitHub owner and repository")
 
     url = app_url(base)
-    if not url:
+    ident = service_id(base)
+    if not url or not ident:
+        missing = projectstate.SERVICE_URL_KEY if not url else projectstate.SERVICE_ID_KEY
         return Wire(target, False,
-                    detail=f"no {projectstate.SERVICE_URL_KEY} in "
-                           f"{projectstate.PROJECT_STATE_FILENAME}, run stage 5 first")
+                    detail=f"no {missing} in {projectstate.PROJECT_STATE_FILENAME}, "
+                           f"run stage 5 first")
+
+    secret = key if key is not None else render_key()
+    if not secret:
+        return Wire(target, False,
+                    detail="no Render API key is stored, run prodpilot setup")
 
     try:
         actions = Actions(token=token, fetch=fetch)
@@ -349,32 +399,34 @@ def wire(root: str | Path, hook: str, token: str | None = None,
         return Wire(target, False, detail=str(exc))
 
     # Written before the secrets are set so the push carries the finished file.
-    path = base / WORKFLOW
+    target_file = base / WORKFLOW
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(workflow(branch), encoding="utf-8")
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(workflow(branch, path), encoding="utf-8")
     except OSError as exc:
         return Wire(target, False, detail=f"cannot write {WORKFLOW}: {exc}")
 
+    values = {KEY: secret, SERVICE: ident, APP_URL: url}
     try:
-        key, key_id = actions.public_key(target)
-        actions.set_secret(target, HOOK, hook, key, key_id)
-        actions.set_secret(target, APP_URL, url, key, key_id)
+        public_key, key_id = actions.public_key(target)
+        for secret_name in SECRETS:
+            actions.set_secret(target, secret_name, values[secret_name],
+                               public_key, key_id)
     except WireError as exc:
         return Wire(target, False, workflow=WORKFLOW, detail=str(exc))
 
     sent = push.run(base, token=actions.token, branch=branch)
     if not sent.ok:
-        return Wire(target, False, secrets=(HOOK, APP_URL), workflow=WORKFLOW,
+        return Wire(target, False, secrets=SECRETS, workflow=WORKFLOW,
                     detail=f"the workflow could not be pushed: {sent.detail}")
 
     try:
         state = actions.state_of(target, WORKFLOW)
     except WireError as exc:
-        return Wire(target, False, secrets=(HOOK, APP_URL), workflow=WORKFLOW,
+        return Wire(target, False, secrets=SECRETS, workflow=WORKFLOW,
                     pushed=True, detail=f"the pipeline could not be verified: {exc}")
 
-    result = Wire(target, state == ACTIVE, secrets=(HOOK, APP_URL),
+    result = Wire(target, state == ACTIVE, secrets=SECRETS,
                   workflow=WORKFLOW, state=state, pushed=True,
                   detail="" if state == ACTIVE else f"the workflow is {state}, not active")
     logger.info("%s", result.summary())
