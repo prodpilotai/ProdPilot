@@ -1,13 +1,15 @@
 """Training and serialisation tests for Phase 5 module 5.4.
 
 The data here is synthetic and small on purpose. These tests check that the
-module joins, splits, weighs, evaluates and serialises correctly, and that it
-refuses the datasets it cannot handle honestly. They are not a claim about how
-well the real model performs, which only the real labelled dataset can say.
+module joins, splits, calibrates, chooses its threshold, evaluates and
+serialises correctly, and that it refuses the datasets it cannot handle
+honestly. They are not a claim about how well the real model performs, which
+only the real labelled dataset can say.
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -16,18 +18,21 @@ import pytest
 from prodpilot import features, training
 from prodpilot.training import (
     ARTIFACT,
+    CALIBRATION,
     FLOOR,
+    FOLDS,
     HELD_OUT,
-    SEED,
+    MINORITY,
+    PARAMS,
     Metrics,
     TrainError,
     check,
     importances,
     load,
+    operating,
     report,
     run,
     save,
-    weigh,
 )
 
 SIZE = features.SIZE
@@ -133,7 +138,7 @@ def test_a_join_that_matches_nothing_is_refused(tmp_path: Path):
 
 
 def test_a_dataset_with_one_class_is_refused():
-    """The likely real outcome, and a model built on it would mean nothing."""
+    """A model built on it would mean nothing."""
     with pytest.raises(TrainError) as caught:
         check([0] * 50)
 
@@ -156,16 +161,22 @@ def test_too_few_rows_to_evaluate_is_refused():
 
 
 def test_a_single_row_of_the_rarer_class_cannot_be_split():
-    y = [0] * 40 + [1]
-
     with pytest.raises(TrainError) as caught:
-        check(y)
+        check([0] * 40 + [1])
 
     assert "rarer class" in str(caught.value)
 
 
+def test_too_few_of_the_rarer_class_to_calibrate_is_refused():
+    """Training cross validates twice, and some folds would hold none of it."""
+    with pytest.raises(TrainError) as caught:
+        check([0] * 60 + [1] * (MINORITY - 1))
+
+    assert str(MINORITY) in str(caught.value)
+
+
 def test_a_workable_dataset_passes_the_check():
-    assert check([0] * 30 + [1] * 10) is None
+    assert check([0] * 30 + [1] * MINORITY) is None
 
 
 def test_training_on_one_class_raises_rather_than_writing_a_model(tmp_path: Path):
@@ -178,7 +189,7 @@ def test_training_on_one_class_raises_rather_than_writing_a_model(tmp_path: Path
 
 
 # --------------------------------------------------------------------------
-# the split and the weights
+# the split, the calibration and the threshold
 # --------------------------------------------------------------------------
 
 
@@ -187,7 +198,7 @@ def test_the_held_out_share_is_a_quarter():
 
 
 def test_the_seed_is_fixed_so_a_rerun_reproduces_the_numbers(tmp_path: Path):
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     first = run(matrix, outcomes)
     second = run(matrix, outcomes)
@@ -199,36 +210,69 @@ def test_the_seed_is_fixed_so_a_rerun_reproduces_the_numbers(tmp_path: Path):
 def test_the_split_keeps_the_rare_class_in_both_halves(tmp_path: Path):
     """A plain random split can put every positive on one side, which makes
     the held out metrics meaningless."""
-    matrix, outcomes = dataset(tmp_path, positives=8, negatives=32)
+    matrix, outcomes = dataset(tmp_path, positives=12, negatives=40)
 
     trained = run(matrix, outcomes)
 
-    # Stratified, so the test set must contain at least one of each class.
     assert trained.metrics.true_positive + trained.metrics.false_negative >= 1
     assert trained.metrics.true_negative + trained.metrics.false_positive >= 1
 
 
-def test_the_rarer_class_is_weighted_up():
-    """GradientBoostingClassifier has no class_weight, so this is where
-    balancing has to happen."""
-    y = [0] * 90 + [1] * 10
+def test_the_model_is_calibrated(tmp_path: Path):
+    """The gate reads its output as a probability, so it has to be one."""
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
-    sample, per_class = weigh(y)
+    trained = run(matrix, outcomes)
 
-    assert per_class["1"] > per_class["0"]
-    assert len(sample) == 100
-    # per_class is the rounded figure written into the artifact for a reader.
-    # The weights that reach fit are exact.
-    assert sample[0] == pytest.approx(per_class["0"], abs=1e-3)
-    assert sample[-1] == pytest.approx(per_class["1"], abs=1e-3)
-    assert sample[0] == pytest.approx(100 / (2 * 90))
-    assert sample[-1] == pytest.approx(100 / (2 * 10))
+    assert trained.calibration == CALIBRATION == "sigmoid"
+    assert len(trained.model.calibrated_classifiers_) == FOLDS
 
 
-def test_a_balanced_dataset_weighs_both_classes_the_same():
-    _, per_class = weigh([0] * 50 + [1] * 50)
+def test_the_model_uses_the_parameters_the_search_chose(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
-    assert per_class["0"] == per_class["1"] == 1.0
+    trained = run(matrix, outcomes)
+    fitted = trained.model.calibrated_classifiers_[0].estimator
+
+    assert trained.params == PARAMS
+    for key, value in PARAMS.items():
+        assert getattr(fitted, key) == value
+
+
+def test_the_model_is_trained_without_class_weights():
+    """Weights inflated every probability the gate reads and bought nothing in
+    ranking, so the imbalance is handled at the threshold instead."""
+    assert "sample_weight" not in inspect.getsource(training.run)
+    assert not hasattr(training, "weigh")
+
+
+def test_the_threshold_is_the_best_f1_point():
+    """Perfectly separable predictions have one right cut."""
+    assert operating([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9]) == 0.8
+
+
+def test_the_threshold_prefers_catching_the_rarer_class():
+    cut = operating([0, 0, 0, 0, 1, 1], [0.05, 0.1, 0.3, 0.35, 0.3, 0.6])
+
+    assert cut <= 0.3, "a cut above 0.3 would miss a positive for no gain"
+
+
+def test_the_threshold_is_chosen_on_training_rows_only():
+    """The held out rows report the model; they never tune it."""
+    source = inspect.getsource(training.run)
+    chosen = source.index("threshold = operating(")
+
+    assert "cross_val_predict" in source[:chosen]
+    assert "x_test" not in source[source.index("ahead = "):chosen]
+
+
+def test_the_threshold_is_stored_as_a_probability(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
+
+    trained = run(matrix, outcomes)
+
+    assert 0.0 < trained.threshold < 1.0
+    assert trained.threshold == trained.metrics.threshold
 
 
 # --------------------------------------------------------------------------
@@ -254,17 +298,59 @@ def test_the_learnable_signal_is_actually_learned(tmp_path: Path):
 
     trained = run(matrix, outcomes)
 
-    assert trained.metrics.accuracy > 0.7, trained.metrics.report()
+    assert trained.metrics.roc_auc > 0.8, trained.metrics.report()
+
+
+def test_ranking_and_calibration_are_measured(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+
+    metrics = run(matrix, outcomes).metrics
+
+    assert 0.0 <= metrics.roc_auc <= 1.0
+    assert 0.0 <= metrics.pr_auc <= 1.0
+    assert 0.0 <= metrics.brier <= 1.0
+
+
+def test_the_report_measures_against_guessing_from_the_stack(tmp_path: Path):
+    """is_node is a feature and the stacks deploy at different rates, so a
+    model could look good by learning nothing but the stack."""
+    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+
+    trained = run(matrix, outcomes)
+
+    assert 0.0 <= trained.metrics.baseline <= 1.0
+    assert "guessing from the stack alone" in report(trained)
+
+
+def test_within_stack_ranking_is_reported_when_measurable(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+
+    within = run(matrix, outcomes).metrics.within
+
+    assert set(within) <= {"react_vite", "node_express"}
+    assert all(0.0 <= v <= 1.0 for v in within.values())
 
 
 def test_importances_are_named_not_numbered(tmp_path: Path):
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     found = importances(run(matrix, outcomes))
 
     assert len(found) == 25
     assert all(name in features.FEATURES for name, _ in found)
     assert found == tuple(sorted(found, key=lambda p: p[1], reverse=True))
+
+
+def test_importances_average_the_calibration_folds(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
+
+    trained = run(matrix, outcomes)
+    folds = trained.model.calibrated_classifiers_
+    first = dict(importances(trained))["failed_p0"]
+    by_hand = sum(f.estimator.feature_importances_[
+        features.FEATURES.index("failed_p0")] for f in folds) / len(folds)
+
+    assert first == pytest.approx(by_hand)
 
 
 def test_the_feature_the_data_depends_on_ranks_highly(tmp_path: Path):
@@ -276,7 +362,7 @@ def test_the_feature_the_data_depends_on_ranks_highly(tmp_path: Path):
 
 
 def test_imbalance_is_stated_rather_than_hidden(tmp_path: Path):
-    matrix, outcomes = dataset(tmp_path, positives=4, negatives=40)
+    matrix, outcomes = dataset(tmp_path, positives=12, negatives=80)
 
     trained = run(matrix, outcomes)
 
@@ -295,12 +381,13 @@ def test_a_balanced_dataset_is_not_called_imbalanced(tmp_path: Path):
     assert "imbalanced" not in report(trained)
 
 
-def test_the_report_shows_the_confusion_matrix(tmp_path: Path):
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+def test_the_report_shows_the_confusion_matrix_at_the_threshold(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     said = report(run(matrix, outcomes))
 
     assert "confusion matrix" in said
+    assert "operating threshold" in said
     assert "predicted 0" in said
     assert "actual 1" in said
 
@@ -320,47 +407,59 @@ def test_the_artifact_carries_the_feature_order(tmp_path: Path):
     """A vector built in a different order would be silently wrong."""
     import joblib
 
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
-    trained = run(matrix, outcomes)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
-    path = save(trained, tmp_path / "model.joblib")
-    found = joblib.load(path)
+    found = joblib.load(save(run(matrix, outcomes), tmp_path / "model.joblib"))
 
     assert found["names"] == list(features.FEATURES)
     assert len(found["names"]) == 25
 
 
+def test_the_artifact_carries_the_threshold_and_how_it_was_made(tmp_path: Path):
+    """Module 5.5 judges every estimate against this threshold."""
+    import joblib
+
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
+    trained = run(matrix, outcomes)
+
+    found = joblib.load(save(trained, tmp_path / "model.joblib"))
+
+    assert found["threshold"] == trained.threshold
+    assert found["params"] == PARAMS
+    assert found["calibration"] == CALIBRATION
+
+
 def test_the_artifact_carries_the_training_date_and_metrics(tmp_path: Path):
     import joblib
 
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
     trained = run(matrix, outcomes)
 
     found = joblib.load(save(trained, tmp_path / "model.joblib"))
 
     assert found["trained"] == trained.trained
-    assert found["metrics"]["accuracy"] == round(trained.metrics.accuracy, 4)
+    assert found["metrics"]["roc_auc"] == round(trained.metrics.roc_auc, 4)
     assert "confusion" in found["metrics"]
-    assert found["rows"] == 40
+    assert found["rows"] == 44
 
 
 def test_the_saved_model_still_predicts(tmp_path: Path):
     import joblib
 
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
     trained = run(matrix, outcomes)
 
     back = joblib.load(save(trained, tmp_path / "model.joblib"))["model"]
 
-    assert list(back.predict([vector(1, True)])) == list(
-        trained.model.predict([vector(1, True)]))
+    assert list(back.predict_proba([vector(1, True)])[0]) == list(
+        trained.model.predict_proba([vector(1, True)])[0])
 
 
 def test_the_saved_model_gives_a_probability(tmp_path: Path):
     """Module 5.5 reads a calibrated probability, not a class."""
     import joblib
 
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
     back = joblib.load(save(run(matrix, outcomes), tmp_path / "model.joblib"))
 
     chance = back["model"].predict_proba([vector(1, True)])[0]
@@ -370,7 +469,7 @@ def test_the_saved_model_gives_a_probability(tmp_path: Path):
 
 
 def test_the_artifact_directory_is_created_if_absent(tmp_path: Path):
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     path = save(run(matrix, outcomes), tmp_path / "deep" / "here" / "model.joblib")
 
@@ -383,18 +482,19 @@ def test_the_default_artifact_path_is_under_data():
 
 
 def test_the_metrics_serialise_whole(tmp_path: Path):
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     payload = run(matrix, outcomes).to_dict()
 
     json.dumps(payload)
     assert set(payload) == {"names", "trained", "rows", "positive", "negative",
-                            "balance", "imbalanced", "metrics"}
+                            "balance", "imbalanced", "threshold", "params",
+                            "calibration", "metrics"}
 
 
 def test_training_writes_nothing_to_stdout(tmp_path: Path, capsys):
     """This package's stdout carries MCP protocol frames."""
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     run(matrix, outcomes)
 
@@ -403,7 +503,7 @@ def test_training_writes_nothing_to_stdout(tmp_path: Path, capsys):
 
 def test_the_estimator_can_be_asked_to_speak_for_a_terminal(tmp_path: Path, capsys):
     """The visible training run a developer watches passes loud through."""
-    matrix, outcomes = dataset(tmp_path, positives=12, negatives=28)
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     run(matrix, outcomes, loud=2)
 
