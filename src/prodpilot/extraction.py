@@ -47,7 +47,7 @@ from prodpilot.audit import RuleResult
 from prodpilot.entropy import scan_project
 from prodpilot.jsparse import Tree, line_of, name_of, walk
 from prodpilot.rules import FixType, get_rule
-from prodpilot.templates import CONSTRAINT, Action, Instruction
+from prodpilot.templates import CONSTRAINT, LINE, Action, Instruction
 
 logger = logging.getLogger(__name__)
 
@@ -360,10 +360,10 @@ def driver(src: Source) -> Extract:
     )
 
 
-def mounts(src: Source) -> list[str]:
-    """Paths the application mounts routers or routes on."""
-    out: list[str] = []
-    for _, tree in src.parsed.ok_trees():
+def mounted(src: Source) -> list[tuple[str, int, str]]:
+    """Paths the application mounts routers or routes on, with where each is."""
+    out: list[tuple[str, int, str]] = []
+    for name, tree in src.parsed.ok_trees():
         if not astchecks.is_app(tree):
             continue
         for call in astchecks.uses(tree) + astchecks.routes(tree):
@@ -371,8 +371,13 @@ def mounts(src: Source) -> list[str]:
             if args and args[0].get("type") == "Literal":
                 target = args[0].get("value")
                 if isinstance(target, str) and target.startswith("/"):
-                    out.append(target)
+                    out.append((name, line_of(args[0]) or 0, target))
     return out
+
+
+def mounts(src: Source) -> list[str]:
+    """Paths the application mounts routers or routes on."""
+    return [path for _, _, path in mounted(src)]
 
 
 def missing_keys(src: Source, prefix: str | None) -> list[str]:
@@ -397,6 +402,42 @@ def host_literals(src: Source) -> list[tuple[str, int, str]]:
             if astchecks.HOST_RE.match(text) and len(text) > 12:
                 out.append((name, line_of(node) or 0, text))
     return out
+
+
+def moved(src: Source, file: str, line: int, literal: str,
+          make: Callable[[str], str], **values: str) -> Extract:
+    """Rewrite the one line holding a literal, with the literal replaced.
+
+    For a fix that swaps a literal for an expression, the contract names the
+    line by number and carries the whole rewritten line. Nothing is appended
+    anywhere, and a credential being moved out of source never travels inside
+    the instruction, since the line it carries no longer holds it. make is given
+    the quote the literal used, for a replacement that is itself a string.
+
+    A literal that is not on its line as one quoted string, for example one
+    split across lines, refuses rather than guessing which text to change.
+    """
+    try:
+        lines = (src.root / file).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return unclear(f"cannot read {file} to rewrite the line")
+    if not 0 < line <= len(lines):
+        return unclear(f"{file} has no line {line} to rewrite")
+    text = lines[line - 1]
+    for quote in ('"', "'", "`"):
+        held = quote + literal + quote
+        if held in text:
+            return found(file=file, line=str(line), anchor=f"{LINE}{line}",
+                         replaced=text.replace(held, make(quote), 1), **values)
+    return unclear(f"line {line} of {file} does not hold the literal as one string, "
+                   f"so which text to change is unclear")
+
+
+def env_url(key: str, text: str, host: str) -> str:
+    """A URL literal with its host read from a Vite environment key."""
+    ref = f"import.meta.env.{key}"
+    rest = text[len(host):]
+    return f"`${{{ref}}}{rest}`" if rest else ref
 
 
 # --------------------------------------------------------------------------
@@ -519,40 +560,46 @@ def secret_name(src: Source, issue: RuleResult) -> Extract:
     named = name_for(src, target.value)
     if not named.ok:
         return named
-    return found(key=named.values["key"], file=target.file, line=str(target.line),
-                 masked=target.masked)
+    key = named.values["key"]
+    ref = ("import.meta.env." if issue.rule_id == "SCR-004" else "process.env.") + key
+    return moved(src, target.file, target.line, target.value, lambda quote: ref,
+                 key=key, masked=target.masked)
 
 
 def db_credentials(src: Source, issue: RuleResult) -> Extract:
     """CON-001: move an inline connection string to an environment key."""
-    literals: list[str] = []
-    for _, tree in src.parsed.ok_trees():
+    literals: list[tuple[str, int, str]] = []
+    for name, tree in src.parsed.ok_trees():
         for call in astchecks.db_connects(tree):
-            for text in astchecks.strings(call):
-                if "://" in text and "@" in text:
-                    literals.append(text)
+            for node in walk(call):
+                text = node.get("value")
+                if (node.get("type") == "Literal" and isinstance(text, str)
+                        and "://" in text and "@" in text):
+                    literals.append((name, line_of(node) or 0, text))
     if not literals:
         return unclear("no inline connection string was found to move")
-    if len(set(literals)) > 1:
+    texts = {text for _, _, text in literals}
+    if len(texts) > 1:
         return unclear(
-            f"{len(set(literals))} different connection strings are inline, so which "
+            f"{len(texts)} different connection strings are inline, so which "
             f"one the environment key should hold is unclear",
-            sorted({t.split("@")[-1] for t in literals}),
+            sorted({t.split("@")[-1] for t in texts}),
         )
-    named = name_for(src, literals[0])
-    if not named.ok:
+    file, line, text = literals[0]
+    named = name_for(src, text)
+    if named.ok:
+        key = named.values["key"]
+    else:
         # A connection string is conventionally DATABASE_URL, but only adopt
         # that when the project has not already named one of its own.
         existing = [k for k in src.declared if k.endswith(("_URL", "_URI", "_DSN"))]
-        if len(existing) == 1:
-            return found(key=existing[0])
         if len(existing) > 1:
             return unclear(
                 "more than one existing key could hold the connection string",
                 sorted(existing),
             )
-        return found(key=(prefix_of(src.declared) or "") + "DATABASE_URL")
-    return found(key=named.values["key"])
+        key = existing[0] if existing else (prefix_of(src.declared) or "") + "DATABASE_URL"
+    return moved(src, file, line, text, lambda quote: f"process.env.{key}", key=key)
 
 
 def pool_config(src: Source, issue: RuleResult) -> Extract:
@@ -571,7 +618,8 @@ def pool_config(src: Source, issue: RuleResult) -> Extract:
 
 def version_prefix(src: Source, issue: RuleResult) -> Extract:
     """API-002: mount routes under a versioned prefix built from the existing ones."""
-    paths = [p for p in mounts(src) if p not in ("/health", "/healthz", "/metrics")]
+    places = [m for m in mounted(src) if m[2] not in ("/health", "/healthz", "/metrics")]
+    paths = [path for _, _, path in places]
     if not paths:
         return unclear("the application mounts no paths to version")
     versioned = [p for p in paths if re.search(r"/v\d+(/|$)", p)]
@@ -586,32 +634,47 @@ def version_prefix(src: Source, issue: RuleResult) -> Extract:
         )
     head = heads.pop() if heads else "api"
     base = "/api/v1" if head == "api" else f"/{head}/v1"
-    return found(prefix=base, current=paths[0])
+    # The first mount moves under the prefix, keeping whatever followed its
+    # root, so /orders/:id becomes /orders/v1/:id rather than losing its path.
+    file, line, current = places[0]
+    stem = "/" + head
+    if current == stem or current.startswith(stem + "/"):
+        new = base + current[len(stem):]
+    else:
+        new = base if current == "/" else base + current
+    return moved(src, file, line, current, lambda quote: quote + new + quote,
+                 prefix=base, current=current)
 
 
 def api_url(src: Source, issue: RuleResult) -> Extract:
     """ENV-004: move a request target to import.meta.env."""
-    targets: list[str] = []
-    for _, tree in src.parsed.ok_trees():
+    targets: list[tuple[str, int, str]] = []
+    for name, tree in src.parsed.ok_trees():
         for node in walk(tree.ast):
             if node.get("type") != "CallExpression":
                 continue
             callee = name_of(node.get("callee")) or ""
             if callee != "fetch" and not callee.startswith("axios"):
                 continue
-            for text in astchecks.strings(node):
-                if astchecks.HOST_RE.match(text):
-                    targets.append(text)
+            for inner in walk(node):
+                text = inner.get("value")
+                if (inner.get("type") == "Literal" and isinstance(text, str)
+                        and astchecks.HOST_RE.match(text)):
+                    targets.append((name, line_of(inner) or 0, text))
     if not targets:
         return unclear("no request targets a literal host")
-    roots = {re.match(r"https?://[^/]+", t).group(0) for t in targets}
+    roots = {re.match(r"https?://[^/]+", t).group(0) for _, _, t in targets}
     if len(roots) > 1:
         return unclear(
             f"requests target {len(roots)} different hosts, so one base URL cannot "
             f"be derived",
             sorted(roots),
         )
-    return found(key="VITE_API_BASE_URL", host=roots.pop())
+    host = roots.pop()
+    key = "VITE_API_BASE_URL"
+    file, line, text = targets[0]
+    return moved(src, file, line, text, lambda quote: env_url(key, text, host),
+                 key=key, host=host)
 
 
 def backend_url(src: Source, issue: RuleResult) -> Extract:
@@ -627,7 +690,10 @@ def backend_url(src: Source, issue: RuleResult) -> Extract:
             sorted(roots),
         )
     name, line, text = hits[0]
-    return found(key="VITE_API_BASE_URL", host=roots.pop(), file=name, line=str(line))
+    host = roots.pop()
+    key = "VITE_API_BASE_URL"
+    return moved(src, name, line, text, lambda quote: env_url(key, text, host),
+                 key=key, host=host)
 
 
 ROUTINES: dict[str, Callable[[Source, RuleResult], Extract]] = {
@@ -751,10 +817,12 @@ SHAPES: dict[str, Shape] = {
     "BLD-010": Shape(Action.CREATE_FILE, "", WORKFLOW,
                      "Runs the project's own install and build steps on every push.",
                      ".github/workflows/deploy.yml"),
-    "BLD-006": Shape(Action.REPLACE_BLOCK, "file:end", STAGES_NODE,
+    # The two stage bodies are whole Dockerfiles, so they replace the file
+    # rather than being appended to the single stage one already there.
+    "BLD-006": Shape(Action.CREATE_FILE, "", STAGES_NODE,
                      "Splits the build so tooling stays out of the runtime image.",
                      "Dockerfile"),
-    "BLD-012": Shape(Action.REPLACE_BLOCK, "file:end", STAGES_REACT,
+    "BLD-012": Shape(Action.CREATE_FILE, "", STAGES_REACT,
                      "Builds in one stage and serves the output from a static image.",
                      "Dockerfile"),
     "BLD-004": Shape(Action.INSERT_AFTER, "package:scripts", '"start": "node {entry}",\n',
@@ -764,19 +832,21 @@ SHAPES: dict[str, Shape] = {
                      "Declares every environment key the code reads.", ".env.example"),
     "ENV-003": Shape(Action.INSERT_AFTER, "file:end", "{keys}\n",
                      "Declares every VITE_ key the code reads.", ".env.example"),
-    "SCR-002": Shape(Action.REPLACE_BLOCK, "file:end", "process.env.{key}\n",
+    # The literal rewrites name the line through moved, which supplies both
+    # the anchor and the rewritten line.
+    "SCR-002": Shape(Action.REPLACE_BLOCK, "{anchor}", "{replaced}\n",
                      "Moves the credential out of source and reads it from the environment."),
-    "SCR-004": Shape(Action.REPLACE_BLOCK, "file:end", "import.meta.env.{key}\n",
+    "SCR-004": Shape(Action.REPLACE_BLOCK, "{anchor}", "{replaced}\n",
                      "Moves the credential out of source and reads it from the environment."),
-    "CON-001": Shape(Action.REPLACE_BLOCK, "file:end", "process.env.{key}\n",
+    "CON-001": Shape(Action.REPLACE_BLOCK, "{anchor}", "{replaced}\n",
                      "Reads the connection string from the environment."),
     "CON-002": Shape(Action.INSERT_AFTER, "file:end", "{config}",
                      "Opens one pooled connection for the driver the project uses."),
-    "API-002": Shape(Action.REPLACE_BLOCK, "file:end", '"{prefix}"\n',
+    "API-002": Shape(Action.REPLACE_BLOCK, "{anchor}", "{replaced}\n",
                      "Mounts routes under a versioned prefix so the API can change safely."),
-    "ENV-004": Shape(Action.REPLACE_BLOCK, "file:end", "import.meta.env.{key}\n",
+    "ENV-004": Shape(Action.REPLACE_BLOCK, "{anchor}", "{replaced}\n",
                      "Reads the API base URL from the environment instead of a literal."),
-    "ENV-005": Shape(Action.REPLACE_BLOCK, "file:end", "import.meta.env.{key}\n",
+    "ENV-005": Shape(Action.REPLACE_BLOCK, "{anchor}", "{replaced}\n",
                      "Reads the backend host from the environment instead of a literal."),
 }
 
@@ -841,11 +911,17 @@ def render(src: Source, issue: RuleResult) -> Instruction:
     if not path:
         raise ExtractError(f"{issue.rule_id}: nothing names the file to change")
 
+    action, anchor = shape.action, shape.anchor.format(**got.values)
+    if action is Action.INSERT_AFTER and anchor == "file:end" and not (src.root / path).is_file():
+        # The end of a file that does not exist yet is the start of a new one,
+        # for example an .env.example the project never had.
+        action, anchor = Action.CREATE_FILE, ""
+
     return Instruction(
         rule_id=issue.rule_id,
-        action=shape.action,
+        action=action,
         file_path=path,
-        anchor=shape.anchor,
+        anchor=anchor,
         content=shape.body.format(**got.values),
         rationale=shape.rationale,
         constraint=CONSTRAINT,

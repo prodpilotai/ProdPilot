@@ -8,6 +8,8 @@ requirement rather than a description.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from prodpilot.audit import RuleResult, run
@@ -175,15 +177,62 @@ def test_render_produces_every_contract_field(rule_id: str):
 
     assert set(payload) == {
         "rule_id", "action", "file_path", "anchor", "content", "rationale", "constraint",
+        "packages",
     }
     assert payload["rule_id"] == rule_id
     assert payload["action"] in {a.value for a in Action}
     assert payload["file_path"]
     assert payload["constraint"] == CONSTRAINT
+    assert isinstance(payload["packages"], dict)
 
 
-def test_the_constraint_is_the_wording_from_the_document():
-    assert CONSTRAINT == "Apply exactly this change. Make no other modifications."
+def test_the_constraint_keeps_the_wording_from_the_document():
+    """Both sentences Section 5.2 gives, with the two conditions a retry needs."""
+    assert CONSTRAINT.startswith("Apply exactly this change.")
+    assert CONSTRAINT.endswith("Make no other modifications.")
+    assert "already in place" in CONSTRAINT
+    assert "package.json" in CONSTRAINT
+
+
+@pytest.mark.parametrize("rule_id", ["SEC-002", "SEC-003", "SEC-004", "API-001",
+                                     "OBS-002", "OBS-003"])
+def test_content_that_requires_a_package_declares_it(rule_id: str):
+    """A require with nothing in package.json crashes the service on start."""
+    template = get(rule_id)
+    needed = set(re.findall(r'require\("([^"]+)"\)', template.content))
+
+    assert needed
+    assert needed <= {name for name, _ in template.packages}
+    assert all(version.startswith("^") for _, version in template.packages)
+
+
+def test_content_that_requires_nothing_declares_nothing():
+    for rule_id, template in TEMPLATES.items():
+        if "require(" not in template.content:
+            assert template.packages == (), rule_id
+
+
+def test_the_helmet_and_cors_bindings_cannot_collide():
+    """Each binds its module inside its own block, so an existing binding is shadowed."""
+    for rule_id, name in (("SEC-002", "helmet"), ("SEC-003", "cors")):
+        content = get(rule_id).content
+        assert content.startswith("{\n") and content.endswith("}\n"), rule_id
+        assert f'const {name} = require("{name}");' in content, rule_id
+
+
+def test_the_cors_fix_replaces_the_existing_registration():
+    """A second registration would leave the first answering with the old origin."""
+    template = get("SEC-003")
+
+    assert template.action is Action.REPLACE_BLOCK
+    assert template.anchor == "express:cors-call"
+
+
+def test_the_shutdown_handler_is_safe_without_a_bound_server():
+    content = get("OBS-004").content
+
+    assert 'typeof server === "undefined"' in content
+    assert "server" in get("ENV-002").content.split("=")[0]
 
 
 def test_a_code_rule_takes_its_path_from_the_audit_finding():

@@ -42,19 +42,36 @@ mechanism the whole system depends on for correctness. A default would make a
 missing verifier invisible: the loop would report RESOLVED and no test would
 fail. So Fixer requires one and raises without it, which keeps a wrong wiring a
 loud failure rather than a quiet pass.
+
+One fix must not break another
+-------------------------------
+The verifier answers for the rule being fixed and nothing else, so on its own
+it would call a change resolved even if that change broke a rule which passed
+before it. Registering a route above existing middleware can do exactly that.
+So Fixer also audits the project before and after every change and compares
+the two. A rule that passed before and fails after is a regression: the change
+is reverted from the files it named, the rule being fixed is blocked for manual
+review rather than retried, and the regression is recorded. Retrying would not
+help, since a content contract renders the same change every time.
+
+The comparison is a full audit, run only when the files actually changed, so a
+change that touched nothing costs nothing extra.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from prodpilot import constraints, extraction, templates
+from prodpilot import audit, constraints, extraction, templates
+from prodpilot.astchecks import SKIP_DIRS
 from prodpilot.audit import Report, RuleResult
 from prodpilot.constraints import Delegation
+from prodpilot.findings import Status
 from prodpilot.rules import FixType, get_rule
 from prodpilot.templates import Instruction
 
@@ -183,6 +200,94 @@ def failing(report: Report, rule_id: str) -> RuleResult:
     raise DispatchError(f"{rule_id} is not a failing rule in this audit")
 
 
+@dataclass(frozen=True)
+class Regression:
+    """A fix that broke rules which passed before it."""
+
+    rule_id: str
+    broke: tuple[str, ...]
+    reverted: bool
+
+    @property
+    def detail(self) -> str:
+        undone = ("the change was reverted" if self.reverted
+                  else "the change was not reverted and needs a person")
+        return (f"fixing {self.rule_id} broke {', '.join(self.broke)}, which passed "
+                f"before it, so {undone}")
+
+    def to_dict(self) -> dict[str, object]:
+        return {"rule_id": self.rule_id, "broke": list(self.broke),
+                "reverted": self.reverted, "detail": self.detail}
+
+
+def statuses(report: Report) -> dict[str, Status]:
+    """Every assessed rule's status in one audit report."""
+    return {r.rule_id: r.status for r in report.results}
+
+
+def standing(root: str | Path) -> dict[str, Status] | None:
+    """Every rule's status in the project as it is on disk now.
+
+    None when the project cannot be audited, in which case there is nothing to
+    compare against and no regression can be claimed either way.
+    """
+    try:
+        return statuses(audit.run(root))
+    except (OSError, ValueError) as exc:
+        logger.warning("cannot audit %s to guard against regressions: %s", root, exc)
+        return None
+
+
+def broken(before: dict[str, Status], after: dict[str, Status],
+           rule_id: str) -> tuple[str, ...]:
+    """Rules that passed before a change and fail after it, other than the one fixed."""
+    return tuple(sorted(
+        r for r, status in before.items()
+        if status is Status.PASS and r != rule_id
+        and after.get(r) in (Status.FAIL, Status.UNPARSED)
+    ))
+
+
+def fingerprint(root: Path) -> tuple[tuple[str, int, int], ...]:
+    """Size and modification time of every project file, to tell if any changed."""
+    out = []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in sorted(files):
+            try:
+                stat = os.stat(os.path.join(folder, name))
+            except OSError:
+                continue
+            out.append((os.path.join(folder, name), stat.st_size, stat.st_mtime_ns))
+    return tuple(out)
+
+
+def keep(root: Path, fix: Fix) -> dict[Path, bytes | None]:
+    """The files a content contract can touch, as they are before it is applied."""
+    kept: dict[Path, bytes | None] = {}
+    for name in {str(fix.body.get("file_path") or ""), "package.json"} - {""}:
+        path = root / name
+        try:
+            kept[path] = path.read_bytes() if path.is_file() else None
+        except OSError:
+            continue
+    return kept
+
+
+def restore(kept: dict[Path, bytes | None]) -> bool:
+    """Put kept files back as they were, removing any that did not exist."""
+    try:
+        for path, data in kept.items():
+            if data is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(data)
+    except OSError as exc:
+        logger.warning("could not revert a change: %s", exc)
+        return False
+    return True
+
+
 def outcome_of(result):
     """Turn one verification verdict into the outcome the loop speaks.
 
@@ -210,15 +315,19 @@ class Fixer:
     Holds the three resolvers 3.2, 3.3 and 3.4 already provide and hands each of
     them the same apply step, so the per fix type behaviour those modules built
     stays exactly as they built it. This class adds routing and the agent round
-    trip, nothing else.
+    trip, and the regression guard, nothing else.
     """
 
-    def __init__(self, root: str | Path, agent: Agent, verify: Verify) -> None:
+    def __init__(self, root: str | Path, agent: Agent, verify: Verify,
+                 guard: bool = True) -> None:
         if agent is None or verify is None:
             raise DispatchError("Fixer needs both an agent and a verify step")
         self.root = Path(root)
         self.agent = agent
         self.verify = verify
+        self.guard = guard
+        self.regressions: list[Regression] = []
+        self.seen: tuple[tuple, dict[str, Status] | None] | None = None
         # Two parallel records of the same events, kept side by side so what the
         # agent said and what the verifier found can be compared directly. The
         # delegated success rate Section 5.3 asks for is measured from these.
@@ -237,8 +346,14 @@ class Fixer:
         recorded and then set aside: the boolean returned is the verifier's,
         whatever the agent reported. A claim of failure is verified too, since
         an untrusted report is untrusted in both directions.
+
+        The one exception is a regression. A change that broke another rule
+        returns False whatever the verifier said, after reverting it, because a
+        fix bought by breaking something else is not a fix.
         """
         fix = as_fix(payload)
+        before = self.now() if self.guard else None
+        kept = keep(self.root, fix) if before is not None else {}
         claim = self.agent(fix)
         self.claims.append(claim)
         verdict = self.verify(fix.rule_id)
@@ -249,7 +364,28 @@ class Fixer:
             claim.applied,
             verdict,
         )
-        return verdict
+        if before is None:
+            return verdict
+        after = self.now()
+        broke = broken(before, after, fix.rule_id) if after is not None else ()
+        if not broke:
+            return verdict
+        # A constraint contract lets the agent choose what to edit, so the files
+        # it named are not known to be all it touched. Only a content change,
+        # which is fully determined, is put back automatically.
+        reverted = fix.form is Form.CONTENT and restore(kept)
+        found = Regression(fix.rule_id, broke, reverted)
+        self.regressions.append(found)
+        self.seen = None
+        logger.warning("%s", found.detail)
+        return False
+
+    def now(self) -> dict[str, Status] | None:
+        """Every rule's status as the files stand, audited only if they changed."""
+        mark = fingerprint(self.root)
+        if self.seen is None or self.seen[0] != mark:
+            self.seen = (mark, standing(self.root))
+        return self.seen[1]
 
     def instruct(self, issue: RuleResult) -> Fix:
         """The module level instruct, bound to this run's project root."""
@@ -265,4 +401,8 @@ class Fixer:
                 Outcome.BLOCKED,
                 f"{issue.rule_id} has no resolver for {issue.rule.fix_type.value}",
             )
-        return pick(issue, attempt)
+        count = len(self.regressions)
+        step = pick(issue, attempt)
+        if len(self.regressions) > count:
+            return Step(Outcome.BLOCKED, self.regressions[-1].detail)
+        return step

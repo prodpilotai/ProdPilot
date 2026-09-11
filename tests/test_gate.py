@@ -24,7 +24,7 @@ from apply import applier
 from prodpilot import audit, gate, reaudit
 from prodpilot.audit import Band, Report, RuleResult, band_of, score_of
 from prodpilot.blueprint import Priority
-from prodpilot.dispatch import Fixer
+from prodpilot.dispatch import Claim, Fixer
 from prodpilot.findings import Status
 from prodpilot.gate import THRESHOLD, Decision, clears, run
 from prodpilot.loop import CEILING, Outcome, Review, Step
@@ -480,22 +480,47 @@ def test_the_second_cycle_works_on_a_rule_the_first_never_queued(looped):
 
     A rule can be unassessable at the start and become assessable once a fix
     lands. Reading the port from the environment is what makes the environment
-    template rule checkable, and it then fails.
+    template rule checkable, it then fails, and the second cycle fixes it.
     """
     root, before, decision = looped
     queued = {i.rule_id for i in before.issues}
     reviewed = {r.rule_id for r in decision.review}
+    now = {r.rule_id: r.status for r in audit.run(root).results}
 
     assert "ENV-001" not in queued
-    assert "ENV-001" in reviewed
+    assert decision.cycles > 1
+    assert "ENV-001" not in reviewed
+    assert now["ENV-001"] is Status.PASS
 
 
-def test_the_gate_refuses_when_the_score_stays_below_threshold(looped):
-    _, _, decision = looped
+def test_the_gate_refuses_when_the_score_stays_below_threshold(tmp_path: Path):
+    """Only the agent is scripted, and it declines every fix, so nothing improves."""
+    root = copy("node_express_insecure", tmp_path)
+
+    def agent(fix):
+        return Claim(fix.rule_id, False, "declined")
+
+    decision = run(root, Fixer(root, agent, verifier(root)).resolve)
 
     assert decision.ready is False
     assert decision.score < THRESHOLD
     assert decision.reason
+
+
+def test_the_seeded_project_clears_the_gate_through_the_real_loop(looped):
+    """The whole of Phases 3 and 4 on one broken project, with nothing scripted.
+
+    It starts far below the threshold with critical failures, and the real
+    contracts, the real edits and the real verifier take it past the threshold
+    with none left. What an insert cannot fix is still reported for review.
+    """
+    _, before, decision = looped
+
+    assert before.score < THRESHOLD and before.blockers
+    assert decision.ready is True, decision.reason
+    assert decision.score >= THRESHOLD
+    assert not decision.blockers
+    assert decision.review
 
 
 def test_the_loop_still_improved_the_project(looped):
@@ -505,13 +530,28 @@ def test_the_loop_still_improved_the_project(looped):
     assert decision.resolved
 
 
-def test_review_records_are_aggregated_across_every_cycle(looped):
-    """Section 5 asks for what remains, not for what one cycle left behind."""
-    _, _, decision = looped
+def test_review_records_are_aggregated_across_every_cycle(tmp_path: Path):
+    """Section 5 asks for what remains, not for what one cycle left behind.
+
+    ENV-001 only becomes assessable once a first cycle fix reads the port from
+    the environment, so it can only fail in a later cycle. The agent here
+    declines that one rule, which is the only thing scripted, so a later cycle
+    failure has to reach review beside the delegated rules the first cycle left.
+    """
+    root = copy("node_express_insecure", tmp_path)
+    real = applier(root)
+
+    def agent(fix):
+        if fix.rule_id == "ENV-001":
+            return Claim(fix.rule_id, False, "declined")
+        return real(fix)
+
+    decision = run(root, Fixer(root, agent, verifier(root)).resolve)
     reviewed = [r.rule_id for r in decision.review]
 
+    assert decision.cycles > 1
     assert len(reviewed) == len(set(reviewed)), "a rule was reported twice"
-    assert "SEC-002" in reviewed, "a first cycle failure is missing"
+    assert "STR-001" in reviewed, "a first cycle failure is missing"
     assert "ENV-001" in reviewed, "a later cycle failure is missing"
 
 
@@ -544,7 +584,7 @@ def test_the_decision_serialises_whole(looped):
         "deploy_chance", "operating_point",
         "cycles", "stopped", "resolved", "blockers", "manual_review",
     }
-    assert payload["ready"] is False
+    assert payload["ready"] is True
     assert payload["manual_review"]
     json.dumps(payload)
 

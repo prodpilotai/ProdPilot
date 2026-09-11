@@ -15,11 +15,12 @@ verifier every time.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 
-from prodpilot import constraints, extraction, templates
+from prodpilot import constraints, dispatch, extraction, templates
 from prodpilot.audit import RuleResult, run
 from prodpilot.dispatch import (
     FORMS,
@@ -29,6 +30,7 @@ from prodpilot.dispatch import (
     Fixer,
     Form,
     as_fix,
+    broken,
     failing,
     form_of,
     instruct,
@@ -399,3 +401,71 @@ def test_an_ambiguous_extraction_still_routes_to_the_parametric_resolver():
     assert reached == [FixType.DYNAMIC_PARAMETRIC]
     assert step.outcome is Outcome.BLOCKED
     assert fixer.claims == []
+
+
+# --------------------------------------------------------------------------
+# one fix must not break another
+# --------------------------------------------------------------------------
+
+
+def breaking(root: Path):
+    """An agent double that ignores the contract and leaves the file unparseable."""
+
+    def send(fix: Fix) -> Claim:
+        (root / "src" / "server.js").write_text("app.use(}{\n", encoding="utf-8")
+        return Claim(fix.rule_id, True, "test double")
+
+    return send
+
+
+def hardened(tmp_path: Path) -> Path:
+    root = tmp_path / "project"
+    shutil.copytree(SAMPLES / "node_express_hardened", root)
+    return root
+
+
+def test_a_fix_that_breaks_a_passing_rule_is_reverted_and_blocked(tmp_path: Path):
+    """The verifier says the rule passes, and the change is still refused."""
+    root = hardened(tmp_path)
+    before = (root / "src" / "server.js").read_bytes()
+    fixer = Fixer(root, breaking(root), lambda rule_id: True)
+
+    step = fixer.resolve(issue("SEC-002"), 1)
+
+    assert step.outcome is Outcome.BLOCKED
+    assert "broke" in step.detail and "reverted" in step.detail
+    assert (root / "src" / "server.js").read_bytes() == before
+    assert len(fixer.regressions) == 1
+    assert fixer.regressions[0].reverted is True
+    assert fixer.verdicts == [True], "the verifier's own verdict is still recorded"
+
+
+def test_without_the_guard_the_verifier_alone_decides(tmp_path: Path):
+    root = hardened(tmp_path)
+    fixer = Fixer(root, breaking(root), lambda rule_id: True, guard=False)
+
+    step = fixer.resolve(issue("SEC-002"), 1)
+
+    assert step.outcome is Outcome.RESOLVED
+    assert fixer.regressions == []
+
+
+def test_an_unchanged_project_is_audited_once(monkeypatch):
+    """The guard costs nothing extra when a change touched no file."""
+    calls: list = []
+    real = dispatch.standing
+    monkeypatch.setattr(dispatch, "standing", lambda root: calls.append(root) or real(root))
+    fixer = Fixer(INSECURE, agent(), lambda rule_id: False)
+
+    fixer.resolve(issue("SEC-002"), 1)
+    fixer.resolve(issue("SEC-003"), 1)
+
+    assert len(calls) == 1
+
+
+def test_only_a_pass_that_turns_into_a_failure_is_a_regression():
+    before = {"A": Status.PASS, "B": Status.PASS, "C": Status.FAIL, "D": Status.PASS}
+    after = {"A": Status.FAIL, "B": Status.SKIPPED, "C": Status.FAIL, "D": Status.UNPARSED}
+
+    assert broken(before, after, "C") == ("A", "D")
+    assert broken(before, after, "A") == ("D",), "the rule being fixed is not its own regression"

@@ -10,6 +10,9 @@ broken.
 
 from __future__ import annotations
 
+import json
+import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -18,8 +21,10 @@ from prodpilot.audit import RuleResult, run
 from prodpilot.findings import Finding, Status
 from prodpilot.loop import Loop, Outcome, Step
 from prodpilot.rules import ALL_RULES, FixType, get_rule
-from prodpilot.templates import CONSTRAINT, Action
+from prodpilot.templates import CONSTRAINT, LINE, Action
 from prodpilot.extraction import (
+    SHAPES,
+    moved,
     ROUTINES,
     SHAPES,
     SPECS,
@@ -261,6 +266,7 @@ def test_render_produces_every_contract_field():
 
     assert set(payload) == {
         "rule_id", "action", "file_path", "anchor", "content", "rationale", "constraint",
+        "packages",
     }
     assert payload["rule_id"] == "BLD-001"
     assert payload["constraint"] == CONSTRAINT
@@ -453,3 +459,81 @@ def test_a_missing_project_is_blocked_rather_than_raised():
 
     assert step.outcome is Outcome.BLOCKED
     assert "cannot read the project" in step.detail
+
+
+# --------------------------------------------------------------------------
+# rewriting a known line rather than appending anything
+# --------------------------------------------------------------------------
+
+
+def original(sample: str, file_path: str, anchor: str) -> str:
+    number = int(anchor[len(LINE):])
+    lines = (SAMPLES / sample / file_path).read_text(encoding="utf-8").splitlines()
+    return lines[number - 1]
+
+
+def test_no_parametric_fix_appends_a_bare_expression():
+    """A replacement at the end of a file is an append, which fixed nothing."""
+    for rule_id, shape in SHAPES.items():
+        if shape.action is Action.REPLACE_BLOCK:
+            assert shape.anchor != "file:end", rule_id
+
+
+def test_a_version_prefix_rewrites_the_line_that_mounts_the_route():
+    src = src_for("node_express_api")
+    got = version_prefix(src, issue("API-002"))
+
+    rendered = render(src, issue("API-002"))
+
+    assert rendered.action is Action.REPLACE_BLOCK
+    assert rendered.anchor.startswith(LINE)
+    before = original("node_express_api", rendered.file_path, rendered.anchor)
+    assert got.values["current"] in before
+    assert "/orders/v1" in rendered.content
+    assert rendered.content.rstrip("\n") != before
+
+
+def test_a_moved_secret_never_travels_in_the_contract():
+    """The rewritten line reads the environment, and the literal is nowhere in it."""
+    rendered = render(src_for("node_express_secrets"), issue("SCR-002"))
+
+    before = original("node_express_secrets", rendered.file_path, rendered.anchor)
+    literals = re.findall(r"""["']([^"']{12,})["']""", before)
+    assert "process.env.GITHUB_TOKEN" in rendered.content
+    assert literals
+    payload = json.dumps(rendered.to_dict())
+    assert all(value not in payload for value in literals)
+
+
+def test_the_two_stage_dockerfiles_replace_the_file():
+    """Each is a whole Dockerfile, so appending it would leave two images in one."""
+    for rule_id in ("BLD-006", "BLD-012"):
+        assert SHAPES[rule_id].action is Action.CREATE_FILE, rule_id
+        assert SHAPES[rule_id].path == "Dockerfile", rule_id
+
+
+def test_an_env_template_is_created_when_the_project_has_none(tmp_path: Path):
+    root = tmp_path / "project"
+    shutil.copytree(SAMPLES / "node_express_secure", root)
+    (root / ".env.example").unlink(missing_ok=True)
+
+    created = render(load(root), issue("ENV-001"))
+
+    assert created.action is Action.CREATE_FILE
+    assert created.file_path == ".env.example"
+    assert created.anchor == ""
+
+    (root / ".env.example").write_text("OTHER=\n", encoding="utf-8")
+    added = render(load(root), issue("ENV-001"))
+
+    assert added.action is Action.INSERT_AFTER
+    assert added.anchor == "file:end"
+
+
+def test_a_literal_that_is_not_on_its_line_is_refused():
+    got = moved(src_for("node_express_api"), "src/server.js", 1, "not-in-this-file",
+                lambda quote: "x")
+
+    assert not got.ok
+    assert "unclear" in got.reason
+    assert got.values == {}

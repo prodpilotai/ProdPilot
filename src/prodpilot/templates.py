@@ -44,11 +44,32 @@ would receive content that does not apply. That is a real limit of classifying
 code insertion as STATIC, and the honest place for such a project is
 DYNAMIC-PARAMETRIC treatment in 3.3. It is recorded here rather than hidden.
 
-Modules are required inline, for example require("helmet")(), rather than as a
-separate import line. A template cannot know whether the module is already
-imported, and emitting a second const declaration for a name already bound is a
-redeclaration error. An inline require is valid, cannot collide, and keeps the
-insertion to a single self contained block.
+Binding a module without colliding
+----------------------------------
+A template cannot know whether the module it needs is already imported, and a
+second top level const for a name already bound is a redeclaration error. Two
+forms avoid that. Where the rule's checker only needs the package to be loaded,
+the module is required inline, for example require("pino-http")(). Where the
+checker looks for the call by name, as it does for helmet and cors, the binding
+is made inside a block of its own, which shadows any outer binding rather than
+colliding with it. Both are valid in any CommonJS file and keep the change self
+contained.
+
+Applying the same contract twice
+---------------------------------
+The loop retries a rule that still fails, so a contract can reach the same file
+more than once. Every content contract is therefore idempotent: content already
+present at its place is left as it is, and the constraint says so. Without that,
+a retry duplicates middleware, and a duplicated metrics registration throws at
+startup.
+
+Packages a contract depends on
+-------------------------------
+Content that requires a package is only correct if the project declares it, or
+the service crashes on its first require. Each such template lists the packages
+it needs with a version range, the instruction carries them, and the constraint
+asks for any that package.json does not already declare to be added to its
+dependencies. A range already declared is left alone.
 """
 
 from __future__ import annotations
@@ -64,7 +85,15 @@ from prodpilot.rules import FixType, Rule, get_rule
 
 logger = logging.getLogger(__name__)
 
-CONSTRAINT = "Apply exactly this change. Make no other modifications."
+CONSTRAINT = (
+    "Apply exactly this change. If the content is already in place, leave the "
+    "file as it is. Add any listed package that package.json does not already "
+    "declare to its dependencies. Make no other modifications."
+)
+
+# The one locator a project dependent contract adds, for a fix that rewrites a
+# known line: line:12 names line 12 of the file, replaced whole.
+LINE = "line:"
 
 
 class Action(str, Enum):
@@ -85,6 +114,7 @@ ANCHORS = {
     "express:after-routes": "after the last route registration",
     "express:after-listen": "after the call that starts the server",
     "express:listen-call": "the existing call that starts the server",
+    "express:cors-call": "the existing cors registration, or before the first route if there is none",
     "nginx:server": "inside the server block",
     "nginx:root-location": "the location block that serves the application root",
 }
@@ -104,6 +134,7 @@ class Template:
     content: str
     rationale: str
     path: str | None = None
+    packages: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if self.action is Action.CREATE_FILE and not self.path:
@@ -123,8 +154,9 @@ class Instruction:
     content: str
     rationale: str
     constraint: str = CONSTRAINT
+    packages: tuple[tuple[str, str], ...] = ()
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "rule_id": self.rule_id,
             "action": self.action.value,
@@ -133,6 +165,7 @@ class Instruction:
             "content": self.content,
             "rationale": self.rationale,
             "constraint": self.constraint,
+            "packages": dict(self.packages),
         }
 
 
@@ -232,12 +265,39 @@ app.use((err, req, res, next) => {
 });
 """
 
+# ENV-002 binds the listening server to server, so the handler drains it. A
+# project whose server is bound under another name still exits cleanly, since
+# typeof is safe on a name that was never declared.
 GRACEFUL_SHUTDOWN = """\
 process.on("SIGTERM", () => {
+  if (typeof server === "undefined") {
+    process.exit(0);
+  }
   server.close(() => {
     process.exit(0);
   });
 });
+"""
+
+HELMET = """\
+{
+  const helmet = require("helmet");
+  app.use(helmet());
+}
+"""
+
+CORS_FROM_ENV = """\
+{
+  const cors = require("cors");
+  app.use(cors({ origin: process.env.CORS_ORIGIN }));
+}
+"""
+
+# Render and most platforms terminate TLS at a proxy, so without trusting it
+# every client shares the proxy's address and one limit throttles them all.
+RATE_LIMIT = """\
+app.set("trust proxy", 1);
+app.use(require("express-rate-limit")({ windowMs: 60000, limit: 100 }));
 """
 
 CSP_HEADERS = """\
@@ -252,13 +312,18 @@ app.use((req, res, next) => {
 """
 
 METRICS_HOOKS = """\
-const promClient = require("prom-client");
-promClient.collectDefaultMetrics();
+require("prom-client").collectDefaultMetrics();
 app.get("/metrics", async (req, res) => {
-  res.set("Content-Type", promClient.register.contentType);
-  res.end(await promClient.register.metrics());
+  const { register } = require("prom-client");
+  res.set("Content-Type", register.contentType);
+  res.end(await register.metrics());
 });
 """
+
+# Version ranges for the packages the Node code templates require, checked
+# against the registry when they were set.
+HELMET_PKG = ("helmet", "^8.1.0")
+CORS_PKG = ("cors", "^2.8.5")
 
 
 def tpl(
@@ -268,8 +333,9 @@ def tpl(
     content: str,
     rationale: str,
     path: str | None = None,
+    packages: tuple[tuple[str, str], ...] = (),
 ) -> Template:
-    return Template(template_id, action, anchor, content, rationale, path)
+    return Template(template_id, action, anchor, content, rationale, path, packages)
 
 
 # --------------------------------------------------------------------------
@@ -316,28 +382,36 @@ TEMPLATES: dict[str, Template] = {
     # ---- Node, code ----
     "SEC-002": tpl(
         "tpl.node.helmet_registered", Action.INSERT_AFTER, "express:before-routes",
-        'app.use(require("helmet")());\n',
+        HELMET,
         "Registers security headers before any route so every response carries them.",
+        packages=(HELMET_PKG,),
     ),
     "SEC-003": tpl(
-        "tpl.node.cors_from_env", Action.INSERT_AFTER, "express:before-routes",
-        'app.use(require("cors")({ origin: process.env.CORS_ORIGIN }));\n',
-        "Reads the allowed origin from the environment instead of trusting every caller.",
+        "tpl.node.cors_from_env", Action.REPLACE_BLOCK, "express:cors-call",
+        CORS_FROM_ENV,
+        "Reads the allowed origin from the environment instead of trusting every caller. "
+        "It replaces the existing registration, since a second one would leave the "
+        "first still answering with the old origin.",
+        packages=(CORS_PKG,),
     ),
     "SEC-004": tpl(
         "tpl.node.csp_headers", Action.INSERT_AFTER, "express:before-routes",
         CSP_HEADERS,
         "Sets a Content Security Policy, enables HSTS and redirects plain HTTP to HTTPS.",
+        packages=(HELMET_PKG,),
     ),
     "ENV-002": tpl(
         "tpl.node.port_from_env", Action.REPLACE_BLOCK, "express:listen-call",
-        "app.listen(process.env.PORT);\n",
-        "Reads the listening port from the environment, which is how the platform assigns it.",
+        "const server = app.listen(process.env.PORT || 3000);\n",
+        "Reads the listening port from the environment, which is how the platform assigns "
+        "it, and keeps the server so a shutdown handler can drain it.",
     ),
     "API-001": tpl(
         "tpl.node.rate_limiting", Action.INSERT_AFTER, "express:before-routes",
-        'app.use(require("express-rate-limit")({ windowMs: 60000, max: 100 }));\n',
-        "Bounds how often a single client can call the API.",
+        RATE_LIMIT,
+        "Bounds how often a single client can call the API, counted per client behind the "
+        "platform's proxy.",
+        packages=(("express-rate-limit", "^8.0.0"),),
     ),
     "API-003": tpl(
         "tpl.node.error_middleware", Action.INSERT_AFTER, "express:after-routes",
@@ -351,13 +425,15 @@ TEMPLATES: dict[str, Template] = {
     ),
     "OBS-002": tpl(
         "tpl.node.structured_logging", Action.INSERT_AFTER, "express:before-routes",
-        'app.use(require("pino-http")());\n',
+        'app.use(require("pino-http")({ logger: require("pino")() }));\n',
         "Emits structured request logs that a log platform can parse.",
+        packages=(("pino", "^10.0.0"), ("pino-http", "^11.0.0")),
     ),
     "OBS-003": tpl(
         "tpl.node.monitoring_hooks", Action.INSERT_AFTER, "express:before-routes",
         METRICS_HOOKS,
         "Exposes process and request metrics for the platform to scrape.",
+        packages=(("prom-client", "^15.1.0"),),
     ),
     "OBS-004": tpl(
         "tpl.node.graceful_shutdown", Action.INSERT_AFTER, "express:after-listen",
@@ -501,6 +577,7 @@ def render(issue: RuleResult) -> Instruction:
         anchor=template.anchor,
         content=template.content,
         rationale=template.rationale,
+        packages=template.packages,
     )
 
 
