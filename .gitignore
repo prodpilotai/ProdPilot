@@ -27,3 +27,6 @@ Thumbs.db
 
 # Phase 5 dataset. Manifest and cache only, never committed.
 data/
+
+# Retired and superseded data files, kept locally rather than deleted.
+backup/
