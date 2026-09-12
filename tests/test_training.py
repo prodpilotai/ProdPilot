@@ -27,8 +27,11 @@ from prodpilot.training import (
     Metrics,
     TrainError,
     check,
+    constraints,
+    estimator,
     importances,
     load,
+    monotone,
     operating,
     report,
     run,
@@ -36,6 +39,16 @@ from prodpilot.training import (
 )
 
 SIZE = features.SIZE
+
+
+@pytest.fixture(autouse=True)
+def quick(monkeypatch):
+    """Three shuffles per feature rather than thirty.
+
+    The importance code is the same; only the number of repeats differs, and
+    thirty of them on every training run here made this file take half an hour.
+    """
+    monkeypatch.setattr(training, "REPEATS", 3)
 
 
 def vector(seed: int, positive: bool) -> list[int]:
@@ -238,6 +251,8 @@ def test_the_model_uses_the_parameters_the_search_chose(tmp_path: Path):
     assert trained.params == PARAMS
     for key, value in PARAMS.items():
         assert getattr(fitted, key) == value
+    assert list(fitted.monotonic_cst) == constraints()
+    assert fitted.early_stopping is False
 
 
 def test_the_model_is_trained_without_class_weights():
@@ -294,8 +309,12 @@ def test_a_model_is_trained_and_evaluated_on_held_out_rows(tmp_path: Path):
 
 
 def test_the_learnable_signal_is_actually_learned(tmp_path: Path):
-    """A sanity check on the pipeline, not a claim about the real dataset."""
-    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+    """A sanity check on the pipeline, not a claim about the real dataset.
+
+    Large enough that each calibration fold trains on more than a hundred rows,
+    so the estimator's minimum leaf size lets it split at all.
+    """
+    matrix, outcomes = dataset(tmp_path, positives=60, negatives=120)
 
     trained = run(matrix, outcomes)
 
@@ -342,20 +361,22 @@ def test_importances_are_named_not_numbered(tmp_path: Path):
     assert found == tuple(sorted(found, key=lambda p: p[1], reverse=True))
 
 
-def test_importances_average_the_calibration_folds(tmp_path: Path):
+def test_importances_are_the_permutation_importances_run_measured(tmp_path: Path):
+    """HistGradientBoostingClassifier reports no impurity importances, so these
+    are how much PR AUC fell on the held out rows when each feature was shuffled."""
     matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
 
     trained = run(matrix, outcomes)
-    folds = trained.model.calibrated_classifiers_
-    first = dict(importances(trained))["failed_p0"]
-    by_hand = sum(f.estimator.feature_importances_[
-        features.FEATURES.index("failed_p0")] for f in folds) / len(folds)
 
-    assert first == pytest.approx(by_hand)
+    assert len(trained.ranked) == SIZE
+    assert dict(importances(trained)) == {name: mean for name, mean, _ in trained.ranked}
+    assert all(spread >= 0 for _, _, spread in trained.ranked)
+    assert not hasattr(trained.model.calibrated_classifiers_[0].estimator,
+                       "feature_importances_")
 
 
 def test_the_feature_the_data_depends_on_ranks_highly(tmp_path: Path):
-    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+    matrix, outcomes = dataset(tmp_path, positives=60, negatives=120)
 
     top = [name for name, _ in importances(run(matrix, outcomes))[:3]]
 
@@ -490,7 +511,8 @@ def test_the_metrics_serialise_whole(tmp_path: Path):
     json.dumps(payload)
     assert set(payload) == {"names", "trained", "rows", "positive", "negative",
                             "balance", "imbalanced", "threshold", "params",
-                            "calibration", "metrics"}
+                            "calibration", "constraints", "monotone", "importances",
+                            "metrics"}
 
 
 def test_training_writes_nothing_to_stdout(tmp_path: Path, capsys):
@@ -508,4 +530,118 @@ def test_the_estimator_can_be_asked_to_speak_for_a_terminal(tmp_path: Path, caps
 
     run(matrix, outcomes, loud=2)
 
-    assert "Iter" in capsys.readouterr().out
+    assert "tree" in capsys.readouterr().out.lower()
+
+
+# --------------------------------------------------------------------------
+# the monotonic constraint
+# --------------------------------------------------------------------------
+
+
+def test_every_failure_is_constrained_down_and_the_build_up():
+    """scikit-learn holds the constraint over the positive class, a deploy,
+    so -1 means more failures can only lower the estimate."""
+    found = dict(zip(features.FEATURES, constraints()))
+
+    assert all(found[n] == -1 for n in features.FEATURES if n.startswith("failed_"))
+    assert found["built"] == 1
+    assert all(found[n] == 0 for n in features.FEATURES
+               if not n.startswith("failed_") and n != "built")
+
+
+def test_the_estimator_is_the_one_that_can_carry_the_constraint():
+    from sklearn.ensemble import GradientBoostingClassifier, HistGradientBoostingClassifier
+
+    base = estimator().estimator
+
+    assert isinstance(base, HistGradientBoostingClassifier)
+    assert list(base.monotonic_cst) == constraints()
+    assert "monotonic_cst" not in GradientBoostingClassifier().get_params()
+
+
+def test_clearing_a_failure_or_fixing_the_build_never_lowers_the_estimate(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+    trained = run(matrix, outcomes)
+    x, _, names = load(matrix, outcomes)
+
+    checked = monotone(trained.model, x, names)
+
+    assert checked["checked"] > 0
+    assert checked["violations"] == 0
+    assert trained.monotone["violations"] == 0
+
+
+class Backwards:
+    """A model that rewards failures, which the check has to catch."""
+
+    classes_ = [0, 1]
+
+    def predict_proba(self, rows):
+        at = features.FEATURES.index("failed_p0")
+        out = []
+        for row in rows:
+            p = min(0.9, 0.1 + 0.2 * row[at])
+            out.append([1 - p, p])
+        return out
+
+
+def test_a_model_that_moves_the_wrong_way_is_caught():
+    row = [0] * SIZE
+    row[features.FEATURES.index("failed_p0")] = 3
+
+    found = monotone(Backwards(), [row], list(features.FEATURES))
+
+    assert found["violations"] >= 1
+    assert found["largest_drop"] < 0
+
+
+def test_a_model_that_breaks_the_constraint_is_refused(tmp_path: Path, monkeypatch):
+    from prodpilot import training
+
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
+    monkeypatch.setattr(training, "monotone",
+                        lambda model, x, names: {"checked": 1, "violations": 1,
+                                                 "largest_drop": -0.2})
+
+    with pytest.raises(TrainError) as caught:
+        run(matrix, outcomes)
+
+    assert "refused" in str(caught.value)
+
+
+# --------------------------------------------------------------------------
+# every measure, for each stack on its own
+# --------------------------------------------------------------------------
+
+
+def test_every_held_out_measure_is_reported_for_each_stack(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+
+    metrics = run(matrix, outcomes).metrics
+
+    assert set(metrics.by_stack) == {"react_vite", "node_express"}
+    for found in metrics.by_stack.values():
+        assert {"rows", "positive", "brier", "precision", "recall", "f1",
+                "confusion", "reliability"} <= set(found)
+    assert sum(f["rows"] for f in metrics.by_stack.values()) == metrics.tested
+
+
+def test_the_calibration_table_covers_every_held_out_row(tmp_path: Path):
+    matrix, outcomes = dataset(tmp_path, positives=20, negatives=40)
+
+    metrics = run(matrix, outcomes).metrics
+
+    assert sum(rows for _, _, rows, _, _ in metrics.reliability) == metrics.tested
+    assert all(0.0 <= said <= 1.0 and 0.0 <= seen <= 1.0
+               for _, _, _, said, seen in metrics.reliability)
+
+
+def test_the_artifact_carries_its_constraint(tmp_path: Path):
+    import joblib
+
+    matrix, outcomes = dataset(tmp_path, positives=14, negatives=30)
+
+    found = joblib.load(save(run(matrix, outcomes), tmp_path / "model.joblib"))
+
+    assert found["constraints"] == constraints()
+    assert found["monotone"]["violations"] == 0

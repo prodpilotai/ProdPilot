@@ -4,81 +4,101 @@ Scope is turning module 5.2's feature matrix and module 5.3's real labels into
 one serialised model that module 5.5 can load and the scoring gate can read.
 
 Section 6 names the estimator: a GradientBoostingClassifier, trained offline,
-serialised with joblib, with feature importances reported. That is still the
-estimator. It is wrapped in scikit-learn's sigmoid calibration, because the gate
-reads its output as a probability, and a probability the gate acts on has to
-mean what it says.
+serialised with joblib, with feature importances reported. This module uses its
+histogram based sibling, HistGradientBoostingClassifier, and that is a
+deliberate deviation made on evidence, not a swap of convenience. It is wrapped
+in scikit-learn's sigmoid calibration, because the gate reads its output as a
+probability, and a probability the gate acts on has to mean what it says.
 
-What this module refuses to do
--------------------------------
-It refuses to produce a model it cannot justify. A dataset with one class in it
-cannot train a classifier, and a dataset with a handful of rows cannot be
-evaluated honestly, so both are errors rather than a model that would look
-finished and mean nothing. Module 5.5 fails closed when the artifact is missing,
-which only works if this module declines to write a worthless one.
+Why the estimator changed
+-------------------------
+Trained on the audit's 25 features, the model could move the wrong way as a
+project was fixed. With every failing rule cleared, React projects that deployed
+and React projects that did not both fell to the same estimate, 0.138, and the
+react_vite_ready sample, audit score 99 with no critical failure, was estimated
+at 0.055 while react_vite_app, audit score 29, was estimated at 0.373. A model
+the gate consults after the fix loop must never say that fixing a rule made a
+project less likely to deploy.
 
-How the configuration was chosen
----------------------------------
-On the full labelled dataset, 684 rows of real Render outcomes, every choice was
-made by cross validation on the training rows only, and the held out rows were
-used once, to report the model that was chosen.
+A monotonic constraint rules that out by construction. scikit-learn supports
+one on HistGradientBoostingClassifier through monotonic_cst, and in the
+installed version, 1.9.0, GradientBoostingClassifier has no such parameter. So
+the estimator changes to the one that can carry the constraint. It is the same
+family, gradient boosted decision trees fitted to the same log loss.
 
-That selection was run on corrected features. The 186 synthetic negatives had
-first been audited as plain folders with no git history, while the real
-repositories were git clones, so a git history rule was skipped for every
-negative and assessed for every real repository. That made assessed_git_hygiene
-tell the two apart, and it became the strongest feature for a reason that had
-nothing to do with deploying. The negatives were re-audited with a one commit
-history, the same shape as the depth one clones the real repositories came from
-and the way the negatives were actually deployed, and the feature fell from the
-top of the importances to near the bottom.
+The constraint, and how its direction is known
+-----------------------------------------------
+scikit-learn documents that, for binary classification, the constraint holds
+over the probability of the positive class, and here the positive class is a
+project that deployed. So every failed_ count is constrained with -1: more
+failures can only lower the estimate or leave it alone, which is the same as
+saying that clearing one can never lower it. built is constrained with +1: a
+build that succeeds can never lower it. Every other feature is left free.
 
-A grid search of 32 combinations around scikit-learn's defaults picked the
-values in PARAMS. It moved the cross validated PR AUC from 0.506 for the
-defaults to 0.525 tuned, inside the spread between folds, so the honest reading
-is that the defaults were already close to right. The tuned values are
-kept because the procedure chose them, not because they are much better.
+The direction is not taken on trust. After training, run lowers each failure
+count by one and turns each failed build into a successful one, on every row of
+the dataset, and refuses to return the model if any estimate went down by more
+than rounding. Sigmoid calibration maps each fold's decision function through a
+fitted logistic curve, which preserves the order only when the curve's slope
+comes out positive, so this check is what proves the constraint survived
+calibration for the model actually fitted.
+
+How the configuration is chosen
+--------------------------------
+Every choice is made by cross validation on the training rows only, and the held
+out rows are used once, to report the model that was chosen.
+
+The 26 feature matrix holds 675 labelled rows: the 684 module 5.3 labelled,
+less 9 whose build could not be determined. Its stratified split with the fixed
+seed leaves 506 rows for training and 169 held out, 32 of them deployers.
+
+The values in PARAMS come from a grid search of 108 combinations over learning
+rate, iterations, leaf count, minimum leaf size and L2 regularisation, scored
+by 5 fold cross validated PR AUC on the training rows with the constraint on.
+The chosen values scored 0.731, with a spread of 0.054 between folds, against
+0.722 and 0.039 for scikit-learn's defaults. That is inside the spread, so the
+honest reading is again that the defaults were close to right; the chosen
+values are kept because the procedure chose them.
 
 Why the imbalance is handled at the threshold, not with weights
 -----------------------------------------------------------------
 An earlier version weighted each row by the inverse frequency of its class.
-Measured on the real dataset, that bought nothing in ranking, the PR AUC was
-within noise either way, and it inflated every probability the gate reads: its
-Brier score was 0.166 against 0.120 once calibrated without weights. So the
-model is trained on the data as it is and calibrated to the real deploy rate,
-and the imbalance is handled where it belongs, in the decision threshold.
+Measured on the real dataset, that bought nothing in ranking and inflated every
+probability the gate reads. So the model is trained on the data as it is and
+calibrated to the real deploy rate, and the imbalance is handled where it
+belongs, in the decision threshold.
 
 That threshold is the operating point that maximises F1 on out of fold
 predictions over the training rows. It is stored in the artifact, because a
-calibrated model on a dataset that is 19 percent positive rarely goes above 0.5,
-and scoring it at 0.5 reports an F1 near zero for a model that ranks well.
+calibrated model on a dataset that is 19 percent positive rarely goes above 0.5.
 
 Why the split is stratified
 ----------------------------
-The positive class in this dataset is rare, because most public repositories do
-not deploy and serve their health route unchanged. A plain random split can put
-every positive row on one side, which makes the held out metrics meaningless. A
-stratified split keeps the same class balance in both halves.
-
-Twenty five percent is held out. That is enough to see the confusion matrix move
-without starving a small training set, and the seed is fixed so a rerun produces
-the same split and the same numbers.
+The positive class in this dataset is rare. A plain random split can put every
+positive row on one side, which makes the held out metrics meaningless. A
+stratified split keeps the same class balance in both halves. Twenty five
+percent is held out, and the seed is fixed so a rerun produces the same split
+and the same numbers.
 
 What the report measures against
 ---------------------------------
 Accuracy is reported but never led with. Beside the model's ranking scores the
 report gives the PR AUC of guessing from the stack alone, because the two stacks
-deploy at very different rates and is_node is one of the features, so a model
-could look good by learning nothing but the stack. It also gives the ROC AUC
-within each stack, where the stack itself tells the model nothing.
+deploy at very different rates. Every held out measure is also reported for each
+stack on its own, where the stack itself tells the model nothing, together with
+a calibration table of predicted against observed deploy rates.
+
+Importances are permutation importances on the held out rows, since
+HistGradientBoostingClassifier reports no impurity importances: how much PR AUC
+falls when one feature's values are shuffled, averaged over repeated shuffles,
+with the spread beside the mean.
 
 Why the metadata travels with the model
 ----------------------------------------
-A serialised estimator alone is not enough to use safely. Module 5.5 has to
-build a feature vector in exactly the order this model was trained on, judge the
-estimate against the threshold chosen here, and a reader has to know when it was
-trained, how, and how well it did. All of that is written into the artifact
-beside the estimator rather than kept in someone's notes.
+Module 5.5 has to build a feature vector in exactly the order this model was
+trained on and judge the estimate against the threshold chosen here, and a
+reader has to know when it was trained, how, and how well it did. All of that
+is written into the artifact beside the estimator.
 """
 
 from __future__ import annotations
@@ -95,32 +115,41 @@ logger = logging.getLogger(__name__)
 DATA = Path("data")
 ARTIFACT = DATA / "model.joblib"
 
-# Held out for evaluation. Small enough to leave a usable training set, large
-# enough that the confusion matrix means something.
+# Held out for evaluation.
 HELD_OUT = 0.25
 
 # Fixed so a rerun reproduces the split, the model and the reported numbers.
 SEED = 20260910
 
-# Below this there is nothing to evaluate honestly. A confusion matrix over a
-# handful of rows is noise with a table around it.
+# Below this there is nothing to evaluate honestly.
 FLOOR = 20
 
 # Training cross validates twice, once to calibrate and once to choose the
 # threshold. With fewer rows of the rarer class than this, some folds would hold
-# none of it, and calibrating on a fold with one class is meaningless.
+# none of it.
 MINORITY = 10
 
-# Chosen by grid search on the training rows of the real dataset. The module
-# docstring says how, and how little it mattered.
-PARAMS = {"n_estimators": 100, "learning_rate": 0.1, "max_depth": 3,
-          "min_samples_leaf": 1, "subsample": 0.8}
+# Chosen by grid search on the training rows of the 26 feature matrix, with the
+# constraint on. The module docstring says how, and how little it mattered.
+# early_stopping is always off, so every fit uses max_iter trees and a rerun
+# reproduces the model exactly.
+PARAMS = {"learning_rate": 0.05, "max_iter": 200, "max_leaf_nodes": 7,
+          "min_samples_leaf": 20, "l2_regularization": 1.0}
 
-# Sigmoid rather than isotonic. On the real training rows it gave the lower
-# Brier score and the higher PR AUC of the two, and isotonic regression needs
-# more data than this to be trusted.
+# Sigmoid rather than isotonic. Isotonic regression needs more data than this to
+# be trusted.
 CALIBRATION = "sigmoid"
 FOLDS = 5
+
+# How many times each feature is shuffled for its permutation importance.
+REPEATS = 30
+
+# The largest fall in an estimate accepted as floating point rounding when the
+# constraint is checked. Anything larger is a violation and the model is refused.
+SLACK = 1e-9
+
+# Edges of the calibration table, denser at the low end where most estimates are.
+EDGES = (0.0, 0.1, 0.2, 0.3, 0.4, 0.6, 1.0)
 
 
 class TrainError(Exception):
@@ -151,6 +180,8 @@ class Metrics:
     threshold: float = 0.5
     baseline: float = 0.0
     within: dict[str, float] = field(default_factory=dict)
+    by_stack: dict[str, dict] = field(default_factory=dict)
+    reliability: tuple[tuple[float, float, int, float, float], ...] = ()
 
     @property
     def tested(self) -> int:
@@ -169,6 +200,8 @@ class Metrics:
             "threshold": round(self.threshold, 4),
             "baseline_pr_auc": round(self.baseline, 4),
             "within_stack_roc_auc": {k: round(v, 4) for k, v in self.within.items()},
+            "by_stack": self.by_stack,
+            "reliability": [list(row) for row in self.reliability],
             "confusion": {
                 "true_negative": self.true_negative,
                 "false_positive": self.false_positive,
@@ -204,6 +237,24 @@ class Metrics:
                          "model nothing")
             for stack, value in self.within.items():
                 lines.append(f"    {stack:<14} {value:.3f}")
+        if self.by_stack:
+            lines.append("")
+            lines.append("  every held out measure for each stack on its own")
+            for stack, found in self.by_stack.items():
+                cells = found["confusion"]
+                lines.append(
+                    f"    {stack:<14} {found['rows']} rows, {found['positive']} deployed; "
+                    f"ROC AUC {found.get('roc_auc', float('nan')):.3f}, "
+                    f"PR AUC {found.get('pr_auc', float('nan')):.3f}, "
+                    f"Brier {found['brier']:.3f}; precision {found['precision']:.3f}, "
+                    f"recall {found['recall']:.3f}; "
+                    f"tn {cells['tn']} fp {cells['fp']} fn {cells['fn']} tp {cells['tp']}")
+        if self.reliability:
+            lines.append("")
+            lines.append("  calibration, predicted against observed deploy rate")
+            for low, high, rows, said, seen in self.reliability:
+                lines.append(f"    {low:.1f} to {high:.1f}   {rows:>4} rows   "
+                             f"predicted {said:.3f}   observed {seen:.3f}")
         return "\n".join(lines)
 
 
@@ -220,6 +271,8 @@ class Trained:
     negative: int
     params: dict[str, object] = field(default_factory=dict)
     calibration: str = ""
+    ranked: tuple[tuple[str, float, float], ...] = ()
+    monotone: dict[str, object] = field(default_factory=dict)
 
     @property
     def threshold(self) -> float:
@@ -248,6 +301,9 @@ class Trained:
             "threshold": round(self.threshold, 4),
             "params": dict(self.params),
             "calibration": self.calibration,
+            "constraints": constraints(self.names),
+            "monotone": dict(self.monotone),
+            "importances": [[n, round(m, 4), round(s, 4)] for n, m, s in self.ranked],
             "metrics": self.metrics.to_dict(),
         }
 
@@ -306,13 +362,26 @@ def check(y: list[int]) -> None:
             f"are needed to split, calibrate and choose a threshold honestly")
 
 
+def constraints(names=features.FEATURES) -> list[int]:
+    """The monotonic constraint on each feature, by name and in order.
+
+    -1 on every failure count, +1 on the build result, 0 on everything else,
+    for the reasons in the module docstring.
+    """
+    return [-1 if name.startswith("failed_") else 1 if name == "built" else 0
+            for name in names]
+
+
 def estimator(seed: int = SEED, loud: int = 0):
-    """The model: a GradientBoostingClassifier inside sigmoid calibration."""
+    """The model: a monotonically constrained HistGradientBoostingClassifier,
+    inside sigmoid calibration."""
     from sklearn.calibration import CalibratedClassifierCV
-    from sklearn.ensemble import GradientBoostingClassifier
+    from sklearn.ensemble import HistGradientBoostingClassifier
 
     return CalibratedClassifierCV(
-        GradientBoostingClassifier(random_state=seed, verbose=loud, **PARAMS),
+        HistGradientBoostingClassifier(random_state=seed, verbose=loud,
+                                       early_stopping=False,
+                                       monotonic_cst=constraints(), **PARAMS),
         method=CALIBRATION, cv=FOLDS)
 
 
@@ -336,16 +405,64 @@ def operating(y: list[int], chance: list[float]) -> float:
     return cut
 
 
+def monotone(model, x, names) -> dict[str, object]:
+    """Check the constraint on a fitted model, one feature at a time.
+
+    Every row with a failure count above zero has it lowered by one, and every
+    row whose build failed has it set to succeeded. Neither is allowed to lower
+    the estimate by more than SLACK.
+    """
+    base = chances(model, x)
+    checked = violations = 0
+    worst = 0.0
+    for index, name in enumerate(names):
+        if name.startswith("failed_"):
+            rows = [r for r, row in enumerate(x) if row[index] > 0]
+            moved = [list(x[r]) for r in rows]
+            for row in moved:
+                row[index] -= 1
+        elif name == "built":
+            rows = [r for r, row in enumerate(x) if row[index] == 0]
+            moved = [list(x[r]) for r in rows]
+            for row in moved:
+                row[index] = 1
+        else:
+            continue
+        if not rows:
+            continue
+        for r, after in zip(rows, chances(model, moved)):
+            checked += 1
+            drop = after - base[r]
+            worst = min(worst, drop)
+            if drop < -SLACK:
+                violations += 1
+    return {"checked": checked, "violations": violations, "largest_drop": worst}
+
+
+def reliability(y: list[int], chance: list[float]) -> tuple[tuple[float, float, int, float, float], ...]:
+    """Predicted against observed deploy rate, in bands of estimate."""
+    out = []
+    for low, high in zip(EDGES[:-1], EDGES[1:]):
+        picked = [i for i, c in enumerate(chance)
+                  if low <= c < high or (high == EDGES[-1] and c == high)]
+        if picked:
+            said = sum(chance[i] for i in picked) / len(picked)
+            seen = sum(y[i] for i in picked) / len(picked)
+            out.append((low, high, len(picked), round(said, 4), round(seen, 4)))
+    return tuple(out)
+
+
 def run(matrix: str | Path = features.MATRIX,
         outcomes: str | Path = labels.LABELS,
         held_out: float = HELD_OUT, seed: int = SEED,
         loud: int = 0) -> Trained:
-    """Load, split, choose a threshold, train, evaluate, and hand back 5.5's needs.
+    """Load, split, choose a threshold, train, check, evaluate, and hand back 5.5's needs.
 
     loud is passed straight to the estimator's verbose setting, so a developer
     running this from a terminal can watch it fit. It defaults to silent,
     because this package's stdout carries MCP protocol frames.
     """
+    from sklearn.inspection import permutation_importance
     from sklearn.metrics import (accuracy_score, average_precision_score,
                                  brier_score_loss, confusion_matrix, f1_score,
                                  precision_score, recall_score, roc_auc_score)
@@ -372,14 +489,24 @@ def run(matrix: str | Path = features.MATRIX,
     model = estimator(seed, loud)
     model.fit(x_fit, y_fit)
     logger.info("fitted %s calibrated folds of %s trees",
-                len(model.calibrated_classifiers_), PARAMS["n_estimators"])
+                len(model.calibrated_classifiers_), PARAMS["max_iter"])
+
+    held = monotone(model, x, names)
+    logger.info("monotonic check over %s changes on %s rows: %s violation(s), "
+                "largest drop %.2e", held["checked"], len(x), held["violations"],
+                held["largest_drop"])
+    if held["violations"]:
+        raise TrainError(
+            f"the fitted model lowered {held['violations']} estimate(s) when a failure "
+            f"was cleared or a build succeeded, so the constraint did not survive "
+            f"calibration and the model is refused")
 
     chance = chances(model, x_test)
     guessed = [1 if c >= threshold else 0 for c in chance]
     cells = confusion_matrix(y_test, guessed, labels=[0, 1])
 
-    # What guessing from the stack alone would score, and how well the model
-    # ranks once the stack is fixed.
+    # What guessing from the stack alone would score, and every measure again
+    # within each stack, where the stack tells the model nothing.
     node = names.index("is_node")
     overall = sum(y_fit) / len(y_fit)
     rate = {}
@@ -389,11 +516,30 @@ def run(matrix: str | Path = features.MATRIX,
     baseline = float(average_precision_score(
         y_test, [rate.get(row[node], overall) for row in x_test]))
     within: dict[str, float] = {}
+    by_stack: dict[str, dict] = {}
     for value, stack in ((0, "react_vite"), (1, "node_express")):
         picked = [i for i, row in enumerate(x_test) if row[node] == value]
+        if not picked:
+            continue
         truth = [y_test[i] for i in picked]
+        seen = [chance[i] for i in picked]
+        call = [guessed[i] for i in picked]
+        part = confusion_matrix(truth, call, labels=[0, 1])
+        entry = {
+            "rows": len(picked), "positive": sum(truth),
+            "brier": round(float(brier_score_loss(truth, seen)), 4),
+            "precision": round(float(precision_score(truth, call, zero_division=0)), 4),
+            "recall": round(float(recall_score(truth, call, zero_division=0)), 4),
+            "f1": round(float(f1_score(truth, call, zero_division=0)), 4),
+            "confusion": {"tn": int(part[0][0]), "fp": int(part[0][1]),
+                          "fn": int(part[1][0]), "tp": int(part[1][1])},
+            "reliability": [list(r) for r in reliability(truth, seen)],
+        }
         if len(set(truth)) == 2:
-            within[stack] = float(roc_auc_score(truth, [chance[i] for i in picked]))
+            within[stack] = float(roc_auc_score(truth, seen))
+            entry["roc_auc"] = round(within[stack], 4)
+            entry["pr_auc"] = round(float(average_precision_score(truth, seen)), 4)
+        by_stack[stack] = entry
 
     metrics = Metrics(
         accuracy=float(accuracy_score(y_test, guessed)),
@@ -408,39 +554,37 @@ def run(matrix: str | Path = features.MATRIX,
         threshold=threshold,
         baseline=baseline,
         within=within,
+        by_stack=by_stack,
+        reliability=reliability(y_test, chance),
     )
+
+    shuffled = permutation_importance(model, x_test, y_test, scoring="average_precision",
+                                      n_repeats=REPEATS, random_state=seed)
+    ranked = tuple(sorted(
+        ((name, float(mean), float(spread)) for name, mean, spread
+         in zip(names, shuffled.importances_mean, shuffled.importances_std)),
+        key=lambda item: item[1], reverse=True))
 
     return Trained(model=model, names=names, trained=date.today().isoformat(),
                    metrics=metrics, rows=len(y), positive=sum(y),
                    negative=len(y) - sum(y), params=dict(PARAMS),
-                   calibration=CALIBRATION)
+                   calibration=CALIBRATION, ranked=ranked, monotone=held)
 
 
 def importances(trained: Trained) -> tuple[tuple[str, float], ...]:
-    """Feature importances against module 5.2's real names, not indices.
+    """Feature importances against module 5.2's real names, highest first.
 
-    Section 6 asks for these to be reported and sensible, which cannot be
-    judged from a column number. A calibrated model holds one fitted ensemble
-    per calibration fold, and their importances are averaged.
+    Permutation importances on the held out rows, computed in run: how much PR
+    AUC falls when one feature is shuffled. A value at or below zero means
+    shuffling that feature cost nothing measurable.
     """
-    model = trained.model
-    folds = getattr(model, "calibrated_classifiers_", None)
-    if folds:
-        arrays = [getattr(fold.estimator, "feature_importances_", None) for fold in folds]
-        if any(found is None for found in arrays):
-            raise TrainError("a calibration fold reported no feature importances")
-        found = [sum(float(a[i]) for a in arrays) / len(arrays)
-                 for i in range(len(arrays[0]))]
-    else:
-        found = getattr(model, "feature_importances_", None)
-        if found is None:
-            raise TrainError("the estimator reported no feature importances")
-    if len(found) != len(trained.names):
+    if not trained.ranked:
+        raise TrainError("the model carries no importances, it was not trained by run")
+    if len(trained.ranked) != len(trained.names):
         raise TrainError(
-            f"the model has {len(found)} features but module 5.2 names "
-            f"{len(trained.names)}")
-    pairs = tuple(zip(trained.names, (float(v) for v in found)))
-    return tuple(sorted(pairs, key=lambda p: p[1], reverse=True))
+            f"the model has {len(trained.ranked)} importances but module 5.2 names "
+            f"{len(trained.names)} features")
+    return tuple((name, mean) for name, mean, _ in trained.ranked)
 
 
 def save(trained: Trained, path: str | Path = ARTIFACT) -> Path:
@@ -461,6 +605,9 @@ def save(trained: Trained, path: str | Path = ARTIFACT) -> Path:
         "threshold": trained.threshold,
         "params": dict(trained.params),
         "calibration": trained.calibration,
+        "constraints": constraints(trained.names),
+        "monotone": dict(trained.monotone),
+        "importances": [list(item) for item in trained.ranked],
         "metrics": trained.metrics.to_dict(),
         "rows": trained.rows,
         "positive": trained.positive,
@@ -476,9 +623,13 @@ def report(trained: Trained) -> str:
         f"trained {trained.trained} on {trained.rows} labelled row(s)",
         f"  {trained.positive} positive, {trained.negative} negative, "
         f"{trained.balance:.1%} positive",
-        f"  GradientBoostingClassifier {trained.params}, "
+        f"  HistGradientBoostingClassifier, monotonic, {trained.params}, "
         f"{trained.calibration} calibration",
     ]
+    if trained.monotone:
+        lines.append(
+            f"  monotonic check: {trained.monotone.get('checked')} changes, "
+            f"{trained.monotone.get('violations')} lowered an estimate")
     if trained.imbalanced:
         lines.append(
             "  the dataset is imbalanced, so accuracy alone is misleading: "
@@ -487,14 +638,11 @@ def report(trained: Trained) -> str:
     lines.append("")
     lines.append(trained.metrics.report())
     lines.append("")
-    lines.append("  feature importances, highest first")
-    ranked = importances(trained)
-    for name, value in ranked:
-        if value <= 0:
-            continue
-        lines.append(f"    {name:<24} {value:.4f}")
-    unused = [n for n, v in ranked if v <= 0]
-    if unused:
-        lines.append(f"    {len(unused)} feature(s) contributed nothing: "
-                     f"{', '.join(unused)}")
+    lines.append("  permutation importances on the held out rows, fall in PR AUC, highest first")
+    for rank, (name, mean, spread) in enumerate(trained.ranked, 1):
+        lines.append(f"    {rank:>2}. {name:<24} {mean:+.4f}  spread {spread:.4f}")
+    idle = [name for name, mean, _ in trained.ranked if mean <= 0]
+    if idle:
+        lines.append(f"    {len(idle)} feature(s) cost nothing measurable when shuffled: "
+                     f"{', '.join(idle)}")
     return "\n".join(lines)
