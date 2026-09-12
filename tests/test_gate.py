@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 
 from apply import applier
-from prodpilot import audit, gate, reaudit
+from prodpilot import audit, builds, gate, reaudit
+from prodpilot.builds import BUILT, UNDETERMINED, Build
 from prodpilot.audit import Band, Report, RuleResult, band_of, score_of
 from prodpilot.blueprint import Priority
 from prodpilot.dispatch import Claim, Fixer
@@ -79,7 +80,7 @@ def artifact(tmp_path_factory) -> Path:
                               evidence=r.evidence)
                    for r in real.results]
         report = dataclasses.replace(real, results=results, score=score_of(results))
-        rows.append(list(features.vector(report)))
+        rows.append(list(features.vector(report, 1)))
         labels.append(1 if not report.blockers and count <= 2 else 0)
 
     model = GradientBoostingClassifier(random_state=1).fit(rows, labels)
@@ -97,6 +98,9 @@ def wired(artifact, monkeypatch):
     from prodpilot import scoring
 
     monkeypatch.setattr(scoring, "ARTIFACT", artifact)
+    # The build check runs Docker and reaches the npm registry, so every test
+    # here is handed a build that succeeded. Tests about the build say so.
+    monkeypatch.setattr(builds, "cached", lambda root, stack, run=None: Build(BUILT))
     scoring.reset()
     yield
     scoring.reset()
@@ -358,7 +362,7 @@ def rebuilt(name: str, failing: set[str]) -> Reaudit:
     score = score_of(results)
     report = Report(project=name, stack=real.stack, detection=real.detection,
                     score=score, band=band_of(score), results=tuple(results))
-    return Reaudit(project=name, report=report)
+    return Reaudit(project=name, report=report, root=str(SAMPLES / name))
 
 
 def test_a_clean_project_clears_the_gate():
@@ -703,3 +707,50 @@ def test_a_project_broken_during_the_run_does_not_deploy(tmp_path: Path):
 
     assert decision.ready is False
     assert decision.score is None
+
+
+# --------------------------------------------------------------------------
+# the build result the model needs
+# --------------------------------------------------------------------------
+
+
+def test_the_build_result_reaches_the_model(monkeypatch):
+    from prodpilot import scoring
+
+    seen = []
+    real = scoring.estimate
+    monkeypatch.setattr(builds, "cached", lambda root, stack, run=None: Build("failed"))
+    monkeypatch.setattr(scoring, "estimate",
+                        lambda report, built, path=None: seen.append(built) or real(report, built, path))
+
+    gate.estimate(rebuilt("react_vite_ready", set()))
+
+    assert seen == [0]
+
+
+def test_an_undetermined_build_gives_no_estimate_and_keeps_the_gate_shut(monkeypatch):
+    """An unknown build is not a failed one, so it cannot be estimated at all."""
+    monkeypatch.setattr(builds, "cached",
+                        lambda root, stack, run=None: Build(UNDETERMINED, reason="timed out"))
+    result = rebuilt("react_vite_ready", set())
+
+    assert gate.estimate(result) == (None, None)
+    passed, why = clears(result)
+    assert passed is False
+    assert "no deployability estimate" in why
+
+
+def test_a_build_check_that_cannot_run_keeps_the_gate_shut(monkeypatch):
+    def broken(root, stack, run=None):
+        raise builds.BuildError("docker is not installed")
+
+    monkeypatch.setattr(builds, "cached", broken)
+
+    assert gate.estimate(rebuilt("react_vite_ready", set())) == (None, None)
+
+
+def test_a_reaudit_that_does_not_say_where_the_project_is_gives_no_estimate():
+    result = rebuilt("react_vite_ready", set())
+    lost = Reaudit(project=result.project, report=result.report)
+
+    assert gate.estimate(lost) == (None, None)

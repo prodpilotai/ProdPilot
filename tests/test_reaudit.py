@@ -314,3 +314,17 @@ def test_a_run_that_resolved_nothing_is_still_re_audited(project: Path):
 
     assert result.ok
     assert result.report.results
+
+
+def test_the_re_audit_carries_where_the_project_is(project: Path):
+    """Module 4.3 builds the project it gates, so it needs the place, not the name."""
+    result = reaudit.after(project)
+
+    assert result.root == str(project)
+    assert "root" not in result.to_dict(), "the serialised shape is unchanged"
+
+
+def test_even_a_failed_re_audit_carries_where_it_looked(tmp_path: Path):
+    missing = tmp_path / "gone"
+
+    assert reaudit.after(missing).root == str(missing)

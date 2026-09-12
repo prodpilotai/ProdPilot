@@ -53,7 +53,7 @@ def artifact(tmp_path_factory, report) -> Path:
         made = dataclasses.replace(report, results=results, score=score_of(results))
         rows.append({"name": f"octo/r{len(rows)}", "kind": "repo", "rule_id": "",
                      "commit": "a" * 40, "score": made.score,
-                     "values": list(features.vector(made))})
+                     "values": list(features.vector(made, 1))})
         labels.append({"name": f"octo/r{len(labels)}", "kind": "repo", "rule_id": "",
                        "commit": "a" * 40,
                        "label": 1 if not made.blockers and count <= 2 else 0,
@@ -213,7 +213,7 @@ def test_a_failure_to_load_is_not_cached_as_a_model(tmp_path: Path, monkeypatch)
 
 
 def test_a_report_becomes_a_score_in_the_documented_range(wired, report):
-    found = score(report)
+    found = score(report, 1)
 
     assert isinstance(found, int)
     assert 0 <= found <= 100
@@ -228,7 +228,7 @@ def test_the_score_is_the_probability_of_the_positive_class(wired):
 
     made = Model(Half(), features.FEATURES, "2026-09-10", {})
 
-    assert made.score([0] * 25) == 37
+    assert made.score([0] * features.SIZE) == 37
 
 
 def test_the_positive_class_is_found_by_label_not_by_position(wired):
@@ -241,7 +241,7 @@ def test_the_positive_class_is_found_by_label_not_by_position(wired):
 
     made = Model(Reversed(), features.FEATURES, "2026-09-10", {})
 
-    assert made.score([0] * 25) == 80
+    assert made.score([0] * features.SIZE) == 80
 
 
 def test_a_model_with_no_positive_class_is_refused():
@@ -254,7 +254,7 @@ def test_a_model_with_no_positive_class_is_refused():
     made = Model(OnlyNegative(), features.FEATURES, "2026-09-10", {})
 
     with pytest.raises(ScoreError) as caught:
-        made.score([0] * 25)
+        made.score([0] * features.SIZE)
 
     assert "no positive class" in str(caught.value)
 
@@ -269,9 +269,9 @@ def test_a_vector_of_the_wrong_width_is_refused():
     made = Model(Any(), features.FEATURES, "2026-09-10", {})
 
     with pytest.raises(ScoreError) as caught:
-        made.score([0] * 24)
+        made.score([0] * (features.SIZE - 1))
 
-    assert "24 features" in str(caught.value)
+    assert f"{features.SIZE - 1} features" in str(caught.value)
 
 
 def test_a_worse_project_scores_lower_than_a_better_one(wired, report):
@@ -283,8 +283,8 @@ def test_a_worse_project_scores_lower_than_a_better_one(wired, report):
                    for r in report.results]
         return dataclasses.replace(report, results=results, score=score_of(results))
 
-    clean = score(with_failing(set()))
-    broken = score(with_failing({r.rule_id for r in report.results[:8]}))
+    clean = score(with_failing(set()), 1)
+    broken = score(with_failing({r.rule_id for r in report.results[:8]}), 1)
 
     assert clean > broken
 
@@ -294,7 +294,7 @@ def test_the_bands_are_module_2_4s_and_not_restated(wired, report):
     source = Path(scoring.__file__).read_text(encoding="utf-8")
 
     assert "Band" not in source.replace("bands", "")
-    assert band_of(score(report)) is not None
+    assert band_of(score(report, 1)) is not None
 
 
 def test_a_report_the_audit_could_not_judge_has_no_features(wired, report):
@@ -302,21 +302,21 @@ def test_a_report_the_audit_could_not_judge_has_no_features(wired, report):
     empty = dataclasses.replace(report, results=[], score=0)
 
     with pytest.raises(features.FeatureError):
-        score(empty)
+        score(empty, 1)
 
 
 def test_the_feature_vector_is_module_5_2s_own(wired):
     """The runtime and the training set cannot drift apart if they share it."""
     source = Path(scoring.__file__).read_text(encoding="utf-8")
 
-    assert "features.vector(report)" in source
+    assert "features.vector(report, built)" in source
 
 
 def test_the_model_summarises_itself_for_a_report(wired):
     payload = load().to_dict()
 
     json.dumps(payload)
-    assert payload["features"] == 25
+    assert payload["features"] == features.SIZE
     assert payload["rows"] == 300
 
 
@@ -365,7 +365,7 @@ def test_a_threshold_that_is_not_a_probability_is_refused(tmp_path: Path, wired)
 
 
 def test_the_estimate_comes_with_its_operating_point(wired, report):
-    chance, operating = scoring.estimate(report)
+    chance, operating = scoring.estimate(report, 1)
 
     assert 0.0 <= chance <= 1.0
     assert operating == load().threshold
@@ -381,5 +381,5 @@ def test_clearing_is_judged_at_the_stored_threshold():
     low = Model(Fixed(), features.FEATURES, "2026-09-12", {}, threshold=0.25)
     high = Model(Fixed(), features.FEATURES, "2026-09-12", {}, threshold=0.35)
 
-    assert low.clears([0] * 25) is True
-    assert high.clears([0] * 25) is False
+    assert low.clears([0] * features.SIZE) is True
+    assert high.clears([0] * features.SIZE) is False

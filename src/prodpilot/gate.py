@@ -55,7 +55,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from prodpilot import audit, reaudit, scoring
+from prodpilot import audit, builds, reaudit, scoring
+from prodpilot.builds import BuildError
 from prodpilot.audit import RuleResult, band_of
 from prodpilot.detection import DetectionError
 from prodpilot.features import FeatureError
@@ -159,11 +160,32 @@ def estimate(result: Reaudit) -> tuple[float | None, float | None]:
     A model that cannot be loaded gives no estimate rather than a guess, and no
     estimate keeps the gate shut. The audit score is never used in its place,
     because the two numbers answer different questions.
+
+    The model also needs to know whether the project builds, which the audit
+    does not say. That comes from module builds, which runs Render's own build
+    command on the audited directory and holds the result until the project's
+    files change, so a run of several cycles builds once. A build that could
+    not be determined, or a check that could not run, gives no estimate, for
+    the same reason a missing model does: an unknown build is not a failed one.
     """
     if result.report is None:
         return None, None
+    if not result.root:
+        logger.error("no deployability estimate for %s: the re-audit does not say "
+                     "where the project is, so it cannot be built", result.project)
+        return None, None
     try:
-        return scoring.estimate(result.report)
+        found = builds.cached(result.root, result.report.stack.value)
+    except BuildError as exc:
+        logger.error("no deployability estimate for %s: the build check could not "
+                     "run: %s", result.project, exc)
+        return None, None
+    if found.built is None:
+        logger.error("no deployability estimate for %s: its build was undetermined, "
+                     "%s", result.project, found.reason)
+        return None, None
+    try:
+        return scoring.estimate(result.report, found.built)
     except (ScoreError, FeatureError) as exc:
         logger.error("no deployability estimate for %s: %s", result.project, exc)
         return None, None

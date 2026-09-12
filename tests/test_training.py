@@ -48,6 +48,7 @@ def vector(seed: int, positive: bool) -> list[int]:
     values[features.FEATURES.index("failed_p0")] = 0 if positive else 4
     values[features.FEATURES.index("failed_security")] = 0 if positive else 3
     values[features.FEATURES.index("is_node")] = seed % 2
+    values[features.FEATURES.index("built")] = 1 if positive else seed % 2
     return values
 
 
@@ -86,13 +87,13 @@ def test_features_and_labels_are_joined_into_a_matrix(tmp_path: Path):
     assert names == features.FEATURES
 
 
-def test_every_row_carries_all_twenty_five_features(tmp_path: Path):
+def test_every_row_carries_every_feature(tmp_path: Path):
     matrix, outcomes = dataset(tmp_path, positives=5, negatives=5)
 
     x, _, names = load(matrix, outcomes)
 
-    assert len(names) == 25
-    assert all(len(row) == 25 for row in x)
+    assert len(names) == SIZE
+    assert all(len(row) == SIZE for row in x)
 
 
 def test_a_feature_row_with_no_label_is_not_trained_on(tmp_path: Path):
@@ -336,7 +337,7 @@ def test_importances_are_named_not_numbered(tmp_path: Path):
 
     found = importances(run(matrix, outcomes))
 
-    assert len(found) == 25
+    assert len(found) == SIZE
     assert all(name in features.FEATURES for name, _ in found)
     assert found == tuple(sorted(found, key=lambda p: p[1], reverse=True))
 
@@ -412,7 +413,7 @@ def test_the_artifact_carries_the_feature_order(tmp_path: Path):
     found = joblib.load(save(run(matrix, outcomes), tmp_path / "model.joblib"))
 
     assert found["names"] == list(features.FEATURES)
-    assert len(found["names"]) == 25
+    assert len(found["names"]) == SIZE
 
 
 def test_the_artifact_carries_the_threshold_and_how_it_was_made(tmp_path: Path):

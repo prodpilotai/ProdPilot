@@ -28,10 +28,18 @@ reason is logged at error level with what actually went wrong.
 Why the feature order is checked rather than trusted
 ------------------------------------------------------
 The artifact carries the column order it was trained on. A vector built in a
-different order is still 25 numbers, so nothing would raise: the model would
-simply answer confidently about the wrong thing. Comparing the stored names
-against module 5.2's own FEATURES on load turns that silent wrongness into a
-refusal.
+different order is still the same count of numbers, so nothing would raise: the
+model would simply answer confidently about the wrong thing. Comparing the
+stored names against module 5.2's own FEATURES on load turns that silent
+wrongness into a refusal. That check is also what refuses a 25 feature model
+trained before the build feature existed.
+
+The build result is the caller's to supply
+-------------------------------------------
+Every feature but one comes from the audit report. Whether the project builds
+does not, so estimate and score take it as an argument: the gate runs the build
+check and passes what it found. There is no default, because a guessed build
+result is a guessed estimate.
 
 What the gate does with it
 ---------------------------
@@ -173,20 +181,22 @@ def reset() -> None:
     _held = None
 
 
-def score(report: Report, path: str | Path | None = None) -> int:
+def score(report: Report, built: int, path: str | Path | None = None) -> int:
     """The calibrated probability for one audit report, as 0 to 100.
 
     The feature vector is module 5.2's own, so the runtime and the training set
     are built by the same code and cannot drift apart.
     """
-    return held(path).score(features.vector(report))
+    return held(path).score(features.vector(report, built))
 
 
-def estimate(report: Report, path: str | Path | None = None) -> tuple[float, float]:
+def estimate(report: Report, built: int,
+             path: str | Path | None = None) -> tuple[float, float]:
     """The probability this project deploys, and the operating point it faces.
 
     What module 4.3 asks for. Both come from the one held artifact, so the
     estimate is always judged against the threshold chosen for that model.
+    built is 1 when the project's own build succeeded and 0 when it failed.
     """
     made = held(path)
-    return made.chance(features.vector(report)), made.threshold
+    return made.chance(features.vector(report, built)), made.threshold

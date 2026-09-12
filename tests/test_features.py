@@ -32,6 +32,7 @@ from prodpilot.features import (
     matrix,
     write_names,
     of,
+    widen,
     vector,
     write,
 )
@@ -45,7 +46,7 @@ def at(name: str) -> int:
 
 
 def row_for(sample: str) -> Row:
-    return of(SAMPLES / sample, sample, REPO)
+    return of(SAMPLES / sample, sample, REPO, built=1)
 
 
 # --------------------------------------------------------------------------
@@ -53,21 +54,21 @@ def row_for(sample: str) -> Row:
 # --------------------------------------------------------------------------
 
 
-def test_there_are_exactly_twenty_five_features():
-    """Section 6 states the count, so it is asserted rather than assumed."""
-    assert SIZE == 25
-    assert len(FEATURES) == 25
+def test_there_are_twenty_six_features():
+    """Section 6 states 25, and the build result is the one deliberate addition."""
+    assert SIZE == 26
+    assert len(FEATURES) == 26
 
 
 def test_the_count_falls_out_of_the_ruleset():
-    """9 domains, 9 domains again, 6 priorities, 1 stack flag.
+    """9 domains, 9 domains again, 6 priorities, 1 stack flag, 1 build result.
 
     Written as arithmetic over the real enums so that adding a domain or a
     priority tier breaks this test rather than silently changing the vector.
     """
     assert len(list(Domain)) == 9
     assert len(list(Priority)) == 6
-    assert len(list(Domain)) * 2 + len(list(Priority)) + 1 == SIZE
+    assert len(list(Domain)) * 2 + len(list(Priority)) + 1 + 1 == SIZE
 
 
 def test_every_feature_name_is_unique():
@@ -79,6 +80,7 @@ def test_the_order_is_the_one_5_3_and_5_4_will_index_by():
     assert FEATURES[9:18] == tuple(f"failed_{d}" for d in DOMAINS)
     assert FEATURES[18:24] == tuple(f"failed_{p.lower()}" for p in PRIORITIES)
     assert FEATURES[24] == "is_node"
+    assert FEATURES[25] == "built"
 
 
 def test_the_audit_score_is_not_one_of_the_features():
@@ -96,7 +98,7 @@ def test_the_audit_score_is_not_one_of_the_features():
     ["node_express_insecure", "node_express_ready", "node_express_hardened",
      "react_vite_ready", "react_vite_app", "react_vite_hardened"],
 )
-def test_every_vector_is_twenty_five_plain_integers(sample: str):
+def test_every_vector_is_plain_integers(sample: str):
     values = row_for(sample).values
 
     assert len(values) == SIZE
@@ -147,6 +149,8 @@ def test_a_known_project_produces_a_hand_verified_vector():
         0, 0, 0, 1, 0, 0,
         # not a Node project
         0,
+        # the build result row_for supplies
+        1,
     )
 
     assert row_for("react_vite_ready").values == expected
@@ -289,7 +293,7 @@ def test_a_report_that_assessed_nothing_has_no_vector():
     assert report.results == ()
 
     with pytest.raises(FeatureError):
-        vector(report)
+        vector(report, 1)
 
 
 def test_a_project_the_audit_engine_cannot_process_is_recorded(monkeypatch):
@@ -359,7 +363,8 @@ def test_every_item_yields_exactly_one_result():
             raise RuntimeError("the commit no longer resolves")
         return SAMPLES / entry.sample
 
-    out = list(build(entries, negatives, fetch))
+    found = {("a/one", REPO, ""): 1, ("n1", NEGATIVE, "BLD-008"): 0}
+    out = list(build(entries, negatives, fetch, found))
 
     assert len(out) == 4
     assert [type(o).__name__ for o in out] == ["Row", "Skipped", "Row", "Skipped"]
@@ -369,7 +374,7 @@ def test_a_repository_that_cannot_be_fetched_is_recorded():
     def fetch(entry):
         raise RuntimeError("the commit no longer resolves")
 
-    out = list(build([Entry("a/one", "x")], [], fetch))
+    out = list(build([Entry("a/one", "x")], [], fetch, {}))
 
     assert isinstance(out[0], Skipped)
     assert out[0].kind == REPO
@@ -380,7 +385,7 @@ def test_a_negative_carries_the_rule_it_violates():
     negatives = [{"name": "n1", "path": str(SAMPLES / "react_vite_app"),
                   "rule_id": "BLD-008"}]
 
-    out = list(build([], negatives, lambda e: Path()))
+    out = list(build([], negatives, lambda e: Path(), {("n1", NEGATIVE, "BLD-008"): 1}))
 
     assert out[0].kind == NEGATIVE
     assert out[0].rule_id == "BLD-008"
@@ -443,3 +448,67 @@ def test_the_feature_names_are_written_beside_the_matrix(tmp_path: Path):
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["size"] == SIZE
     assert payload["features"] == list(FEATURES)
+
+
+# --------------------------------------------------------------------------
+# the build result, the one feature not read from the audit
+# --------------------------------------------------------------------------
+
+
+def test_the_build_result_is_the_last_value():
+    assert of(SAMPLES / "react_vite_ready", "a/b", REPO, built=1).values[at("built")] == 1
+    assert of(SAMPLES / "react_vite_ready", "a/b", REPO, built=0).values[at("built")] == 0
+
+
+@pytest.mark.parametrize("built", [None, 2, -1, True, "1"])
+def test_a_vector_needs_a_real_build_result(built):
+    """An unknown build is not a failed build, so it cannot become a zero."""
+    with pytest.raises(FeatureError):
+        vector(audit.run(SAMPLES / "react_vite_ready"), built)
+
+
+def test_a_project_with_no_recorded_build_has_no_row():
+    with pytest.raises(FeatureError) as caught:
+        of(SAMPLES / "react_vite_ready", "a/b", REPO)
+
+    assert "build result" in str(caught.value)
+
+
+def test_an_item_with_no_recorded_build_is_skipped_with_its_reason():
+    out = list(build([Entry("a/one", "node_express_insecure")], [],
+                     lambda entry: SAMPLES / entry.sample, {}))
+
+    assert isinstance(out[0], Skipped)
+    assert "build result" in out[0].reason
+
+
+def written(name: str, kind: str = REPO, rule_id: str = "") -> dict:
+    return {"name": name, "kind": kind, "rule_id": rule_id, "stack": "react_vite",
+            "commit": "c" * 40, "score": 50, "values": list(range(SIZE - 1))}
+
+
+def test_widening_adds_the_recorded_result_and_moves_nothing():
+    rows = [written("a/one"), written("n1", NEGATIVE, "BLD-008")]
+
+    out, skipped = widen(rows, {("a/one", REPO, ""): 1, ("n1", NEGATIVE, "BLD-008"): 0})
+
+    assert skipped == []
+    assert [r["values"][-1] for r in out] == [1, 0]
+    assert all(r["values"][:SIZE - 1] == list(range(SIZE - 1)) for r in out)
+    assert all(len(r["values"]) == SIZE for r in out)
+
+
+def test_a_row_with_no_recorded_result_is_skipped_not_guessed():
+    out, skipped = widen([written("a/one"), written("b/two")], {("a/one", REPO, ""): 1})
+
+    assert [r["name"] for r in out] == ["a/one"]
+    assert [s.name for s in skipped] == ["b/two"]
+    assert "no recorded build result" in skipped[0].reason
+
+
+def test_only_a_twenty_five_value_row_can_be_widened():
+    wide = written("a/one")
+    wide["values"] = list(range(SIZE))
+
+    with pytest.raises(FeatureError):
+        widen([wide], {("a/one", REPO, ""): 1})

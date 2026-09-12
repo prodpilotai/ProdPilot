@@ -73,12 +73,17 @@ class Reaudit:
     it, and no rule status depends on it.
 
     reason is filled only when no usable report could be produced.
+
+    root is the directory that was audited. The report names the project but
+    not where it is, and module 4.3 needs the place itself, because the model
+    it consults also needs to know whether that project builds.
     """
 
     project: str
     report: Report | None
     stopped: Stop | None = None
     reason: str = ""
+    root: str = ""
 
     @property
     def ok(self) -> bool:
@@ -130,13 +135,15 @@ def after(root: str | Path, run: LoopRun | None = None) -> Reaudit:
         report = audit.run(base)
     except (NotADirectoryError, DetectionError, OSError) as exc:
         logger.warning("re-audit of %s failed: %s", base, exc)
-        return Reaudit(project=name, report=None, stopped=stopped, reason=str(exc))
+        return Reaudit(project=name, report=None, stopped=stopped, reason=str(exc),
+                       root=str(base))
 
     if not report.results:
         reason = report.detection.reason or "no rules applied to this project"
         logger.warning("re-audit of %s assessed no rules: %s", base, reason)
-        return Reaudit(project=report.project, report=report, stopped=stopped, reason=reason)
+        return Reaudit(project=report.project, report=report, stopped=stopped, reason=reason,
+                       root=str(base))
 
-    result = Reaudit(project=report.project, report=report, stopped=stopped)
+    result = Reaudit(project=report.project, report=report, stopped=stopped, root=str(base))
     logger.info("%s", result.summary())
     return result
