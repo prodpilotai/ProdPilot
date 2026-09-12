@@ -19,6 +19,9 @@ untested, blocked by an exhausted account quota rather than by anything in the
 project, and the two Section 8 week-one questions move to Phase 7. See
 [docs/phase1-verification.md](docs/phase1-verification.md) for the full record.
 
+Numbers quoted in some earlier commit messages describe a model that has since
+been corrected and replaced. See [docs/corrections.md](docs/corrections.md).
+
 ## Running the server
 
 ProdPilot speaks the Model Context Protocol over stdio. An MCP client starts it

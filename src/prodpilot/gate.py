@@ -125,10 +125,21 @@ def reading(result: Reaudit) -> int | None:
     unchanged. Measured on the real dataset, that cannot work. The model is
     honest: its probabilities match observed deploy rates. And no project in
     684 real repositories reaches a calibrated 0.9, not even with every failing
-    rule set to passing, where the highest is 0.63. Much of what makes a
+    rule set to passing, where the highest is 0.515. Much of what makes a
     deployment fail, a database it needs or a secret it lacks, is outside
     anything the audit measures, so the model cannot be that sure. A gate at 90
     on the probability would never open, and ProdPilot would never deploy.
+
+    The model condition is not equally fit for both stacks. Measured on the
+    promoted model, with every failing rule set to passing, 284 of 327 Express
+    projects clear the operating point and 15 of 357 React projects do. For
+    React the estimate stops separating anything once failures are cleared:
+    projects that really deployed and projects that did not both fall to a mean
+    of 0.138, and the react_vite_ready sample, audit score 99 with no critical
+    failure, is refused at 0.055. The audit does not measure what mostly decides
+    whether a React project deploys, which is whether its build succeeds. This
+    is recorded as found, and the policy is revisited once a model that can see
+    the build has been evaluated.
 
     So the audit score keeps its place, with its threshold of 90, its blocker
     rule and its bands, and the model is asked a separate question in estimate:
