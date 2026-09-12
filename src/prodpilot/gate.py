@@ -125,22 +125,17 @@ def reading(result: Reaudit) -> int | None:
     the calibrated model's probability and leave the threshold and the bands
     unchanged. Measured on the real dataset, that cannot work. The model is
     honest: its probabilities match observed deploy rates. And no project in
-    684 real repositories reaches a calibrated 0.9, not even with every failing
-    rule set to passing, where the highest is 0.515. Much of what makes a
+    675 real projects reaches a calibrated 0.9, not even with every failing rule
+    set to passing: on the model trained with the build result, the highest
+    estimate is 0.802 as audited and 0.887 fully fixed. Much of what makes a
     deployment fail, a database it needs or a secret it lacks, is outside
     anything the audit measures, so the model cannot be that sure. A gate at 90
     on the probability would never open, and ProdPilot would never deploy.
 
-    The model condition is not equally fit for both stacks. Measured on the
-    promoted model, with every failing rule set to passing, 284 of 327 Express
-    projects clear the operating point and 15 of 357 React projects do. For
-    React the estimate stops separating anything once failures are cleared:
-    projects that really deployed and projects that did not both fall to a mean
-    of 0.138, and the react_vite_ready sample, audit score 99 with no critical
-    failure, is refused at 0.055. The audit does not measure what mostly decides
-    whether a React project deploys, which is whether its build succeeds. This
-    is recorded as found, and the policy is revisited once a model that can see
-    the build has been evaluated.
+    The model trained before the build result existed was not fit to gate React:
+    with every failing rule cleared, React projects that deployed and ones that
+    did not fell to the same estimate. The model trained with it is, and the
+    evidence is recorded beside VETO, where the decision is set.
 
     So the audit score keeps its place, with its threshold of 90, its blocker
     rule and its bands, and the model is asked a separate question in estimate:
@@ -149,6 +144,24 @@ def reading(result: Reaudit) -> int | None:
     recorded here and in the commit that made it.
     """
     return result.score
+
+
+# Stacks whose deployments the model's estimate may block. For a stack not named
+# here the estimate is still produced and reported beside the score, but it does
+# not decide; the audit half of the gate still does.
+#
+# Both stacks are named. The decision was taken from module 5.4's evaluation,
+# docs/evaluation.md, against a rule fixed before its numbers existed: React is
+# blocked by the model only if, with every failing rule cleared, the estimate
+# separates React projects that deployed from ones that did not with a ROC AUC
+# of at least 0.70 on all rows and on the held out rows, the held out ROC AUC
+# within React is at least 0.70, and at least three quarters of fully fixed
+# React deployers clear the operating point. On the model trained with the
+# build result and the monotonic constraint those are 0.864, 0.830, 0.852 and
+# 108 of 109. On the model before it they were 0.489, 0.514, 0.653 and 7 of 109,
+# and React would have stayed advisory. For Express, where the same measures
+# are 0.858, 0.797, 0.913 and 20 of 20, the model already decided.
+VETO = frozenset({"node_express", "react_vite"})
 
 
 def estimate(result: Reaudit) -> tuple[float | None, float | None]:
@@ -217,6 +230,12 @@ def clears(result: Reaudit, threshold: int = THRESHOLD) -> tuple[bool, str]:
         return False, f"score {score} is below the threshold of {threshold}"
 
     chance, operating = estimate(result)
+    stack = result.report.stack.value
+    if stack not in VETO:
+        said = (f"the model estimates a {chance:.0%} chance of deploying"
+                if chance is not None else "no model estimate could be produced")
+        return True, (f"score {score} meets the threshold of {threshold} with no critical "
+                      f"failures; {said}, which is advisory for {stack}")
     if chance is None or operating is None:
         return False, (f"score {score} meets the threshold, but no deployability "
                        f"estimate could be produced, so the gate stays shut. See "

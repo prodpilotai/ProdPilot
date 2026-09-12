@@ -754,3 +754,60 @@ def test_a_reaudit_that_does_not_say_where_the_project_is_gives_no_estimate():
     lost = Reaudit(project=result.project, report=result.report)
 
     assert gate.estimate(lost) == (None, None)
+
+
+# --------------------------------------------------------------------------
+# which stacks the model may block
+# --------------------------------------------------------------------------
+
+
+class Doubtful:
+    classes_ = [0, 1]
+
+    def predict_proba(self, rows):
+        return [[0.9, 0.1] for _ in rows]
+
+
+def doubting():
+    from prodpilot import scoring
+
+    scoring._held = scoring.Model(Doubtful(), scoring.held().names, "2026-09-12", {},
+                                  threshold=OPERATING)
+
+
+def test_a_stack_outside_the_veto_is_not_blocked_by_the_model(monkeypatch):
+    """The estimate is still produced and said, but it does not decide."""
+    monkeypatch.setattr(gate, "VETO", frozenset({"node_express"}))
+    doubting()
+
+    ok, why = clears(rebuilt("react_vite_ready", set()))
+
+    assert ok is True
+    assert "10% chance of deploying" in why
+    assert "advisory for react_vite" in why
+
+
+def test_a_stack_inside_the_veto_is_still_blocked_by_the_model(monkeypatch):
+    monkeypatch.setattr(gate, "VETO", frozenset({"react_vite"}))
+    doubting()
+
+    ok, why = clears(rebuilt("react_vite_ready", set()))
+
+    assert ok is False
+    assert "operating point" in why
+
+
+def test_an_advisory_stack_still_needs_the_audit_half(monkeypatch):
+    """Leaving a stack out of the veto removes the model's say, nothing else."""
+    monkeypatch.setattr(gate, "VETO", frozenset())
+
+    ok, why = clears(rebuilt("react_vite_ready", {"SEC-005"}))
+
+    assert ok is False
+    assert "critical rule" in why
+
+
+def test_the_veto_names_only_stacks_that_exist():
+    from prodpilot.blueprint import Stack
+
+    assert gate.VETO <= {s.value for s in Stack if s is not Stack.UNRECOGNIZED}
