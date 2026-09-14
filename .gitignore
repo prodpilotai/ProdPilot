@@ -30,3 +30,6 @@ data/
 
 # Retired and superseded data files, kept locally rather than deleted.
 backup/
+
+# Devin project-local MCP config: holds a path that only works on one machine
+.devin/mcp_config.local.json

@@ -29,8 +29,9 @@ project, and the two Section 8 week-one questions move to Phase 7. See
 [docs/phase1-verification.md](docs/phase1-verification.md) for the full record.
 
 Phase 7, IDE compatibility, is in progress. Every tool is proven over the
-command in `.vscode/mcp.json`, and each client's results, including anything
-not yet tested and why, are in [docs/compatibility.md](docs/compatibility.md).
+commands in `.vscode/mcp.json` and `.cursor/mcp.json`, and each client's
+results, including failures and anything not yet tested and why, are in
+[docs/compatibility.md](docs/compatibility.md).
 
 Numbers quoted in some earlier commit messages describe a model that has since
 been corrected and replaced. See [docs/corrections.md](docs/corrections.md).

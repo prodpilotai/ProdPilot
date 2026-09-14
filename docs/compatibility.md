@@ -26,8 +26,8 @@ tested" with the reason. Nothing is marked from documentation alone.
 | --- | --- | --- | --- | --- | --- | --- |
 | Direct stdio client, `.vscode/mcp.json` command | Pass, 14 Sep | Pass, 5 of 5, 14 Sep | Pass, SEC-002, 14 Sep | Pass, STR-003, 14 Sep | Not applicable, no person in the loop | Pass, arrives whole, 14 Sep |
 | VS Code, Copilot agent mode | Pass on VS Code 1.134.0, 21 Aug; not re-observed on 1.137.0 | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed |
-| Cursor | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 |
-| Windsurf | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 | Not tested: module 7.2 |
+| Cursor 3.20.17, Agent | Pass after the developer enabled it, 14 Sep | Pass, 5 of 5, 14 Sep | Pass, SEC-002 and BLD-001, 14 Sep | Pass, STR-003, 14 Sep | No prompt on any of 3 calls, against Cursor's documented default, 14 Sep | Pass, 28 of 28 items counted, 14 Sep |
+| Windsurf, now Devin 3.10.23, agent | Fails from the committed configs, `${workspaceFolder}` is blanked; pass from Devin's own `.devin/mcp_config.local.json`, 14 Sep | Pass, 5 of 5, 14 Sep | Pass, SEC-002 and BLD-001, 14 Sep | Pass, STR-003, 14 Sep | Prompts on every call, each approval covers one call, 14 Sep | Pass, all 28 items listed, 14 Sep |
 
 ## Module 7.1: VS Code
 
@@ -143,3 +143,134 @@ that sample passes the gate and a deploy would create a real service.
 11. Run `git status` in the repository and confirm nothing under
     `tests/samples` changed. If the agent edited anything, restore it with
     `git checkout -- tests/samples`.
+
+## Module 7.2: Cursor and Windsurf
+
+Recorded 14 September 2026 on the same machine and commit as module 7.1.
+Both IDEs were installed that day for this module. Each was configured by its
+own documented method, not by assuming it matches VS Code's.
+
+### Cursor 3.20.17
+
+Configuration. Cursor reads a project's servers from `.cursor/mcp.json`, under
+the key `mcpServers`, and resolves `${workspaceFolder}` in `command` and
+`args`. The file committed here names the same launch command as
+`.vscode/mcp.json`, and `tests/test_clients.py` proves that command over the
+real transport on every suite run, alongside the VS Code one.
+
+Discovery. Cursor found the file as soon as it was written and registered the
+server as `project-0-ProdPilot-prodpilot`, but held it disconnected until the
+developer switched it on in Cursor's MCP settings, which matches its
+documented handling of a newly added project server. Once enabled, it started
+the server and logged `tools=5, status=connected`.
+
+Every result below was read from two places: the agent's answer in the chat,
+and ProdPilot's own log of each call, which Cursor keeps per server.
+
+| Check | Asked | Observed |
+| --- | --- | --- |
+| Content form | `node_express_insecure`, SEC-002 | STATIC, content, `insert_after` in `src/server.js`, helmet `^8.1.0`; call logged 10:56:52 |
+| Content form, repeated | `node_express_insecure`, BLD-001 | DYNAMIC-PARAMETRIC, content, `create_file` for `Dockerfile`; call logged 10:58:29 |
+| Constraint form | `react_vite_ready`, STR-003 | DYNAMIC-DELEGATED, constraint, `author_within_constraint` with requirement, boundary and forbidden list, no content; call logged 11:00:44 |
+| Response size | `prodpilot_detect_stack`, `node_express_insecure` | The agent counted 28 items, 5 files, 6 configs and 17 code patterns, which needs the last and largest list of the 11,988 byte result; no truncation in Cursor's logs; call logged 11:03:24 |
+
+No file under `tests/samples` changed.
+
+Per-call approval. None of the three fix instruction calls stopped for
+approval; each ran as soon as the agent chose to call it. Cursor's
+documentation says it asks for approval before using MCP tools by default.
+This installation's stored settings show why the two differ: on a new install
+Cursor applied its own default, recorded as `smartModeAutoRun: true` with
+`fullAutoRun: false`, under which the agent decides when a tool runs without
+asking. The observation is the fresh-install default of this version, not a
+setting anyone changed.
+
+That has one consequence worth stating. With no approval gate, nothing in the
+client stops the agent calling `prodpilot_deploy` by itself; the only guard is
+the tool's description, which tells the agent to confirm with the developer
+first and to commit its changes before deploying. A server cannot require a
+client to ask. A developer who wants the gate can turn off auto-run in
+Cursor's settings.
+
+Cursor also labels every line ProdPilot writes to stderr as an error. Those
+lines are ProdPilot's ordinary log, kept off stdout because stdout carries the
+protocol; nothing failed.
+
+### Windsurf, now Devin 3.10.23
+
+Windsurf is now distributed as Devin, published by Codeium. The installed
+application is `Devin (User)` 3.10.23; it runs Windsurf's language server, keeps
+Windsurf's settings folder `~/.codeium/windsurf`, and its documentation for MCP
+moved from the Windsurf site to Devin's. Its agent is the Devin agent, version
+3000.10.23, bundled in the application.
+
+Configuration. Two methods are documented. The Windsurf page names one global
+file, `~/.codeium/windsurf/mcp_config.json`, under `mcpServers`, with
+`${env:NAME}` and `${file:path}` substitution and no `${workspaceFolder}`. The
+Devin agent's page names three files in order of precedence,
+`.devin/mcp_config.local.json`, `.devin/mcp_config.json`, and
+`%APPDATA%\devin\mcp_config.json`, and says nothing about variables. The
+agent also imports other clients' MCP configs, which its logs show it doing
+each time it lists servers.
+
+Discovery failed first, and the failure is recorded as found. With the
+Windsurf file in place, pointing at the absolute path of the launcher, the
+panel showed a single `prodpilot` entry in error, "Connection failed, cannot
+find binary path". The agent's log shows why:
+
+```text
+[MCP] environment variable 'workspaceFolder' is not set; substituting empty string
+Starting stdio MCP server 'prodpilot': "/.venv/Scripts/prodpilot.exe" ["serve"]
+MCP server 'prodpilot' connection failed: cannot find binary path
+```
+
+The agent had imported a committed workspace config, `.vscode/mcp.json` or
+`.cursor/mcp.json`, which both use `${workspaceFolder}`, treated that variable
+as an unset environment variable, and blanked it. The imported entry shares the
+name `prodpilot`, and it was the one the agent tried; it never launched from the
+Windsurf file. So on this version, the committed configs do not work in Devin.
+
+Discovery passed through the agent's own highest precedence file,
+`.devin/mcp_config.local.json`, naming the absolute launch command. That file
+holds a path only valid on one machine, so it is listed in `.gitignore` and
+never committed. After reconnecting, the log shows
+`Starting stdio MCP server 'prodpilot': "E:/ProdPilot/ProdPilot/.venv/Scripts/prodpilot.exe"`
+and `connected successfully`, and the panel listed all five tools. It lists them
+under "Write", because ProdPilot marks none of its tools as read only.
+
+| Check | Asked | Observed |
+| --- | --- | --- |
+| Content form | `node_express_insecure`, SEC-002 | STATIC, content, `insert_after` in `src/server.js`, helmet `^8.1.0`; called 11:10:06 |
+| Content form, repeated | `node_express_insecure`, BLD-001 | DYNAMIC-PARAMETRIC, content, `create_file` for `Dockerfile`; called 11:11:28 |
+| Constraint form | `react_vite_ready`, STR-003 | DYNAMIC-DELEGATED, constraint, `author_within_constraint` with requirement, boundary and forbidden list, no content; called 11:12:26 |
+| Response size | `prodpilot_detect_stack`, `node_express_insecure` | The agent listed all 28 items by name, 5 files, 6 configs and 17 code patterns, ending with the last entry of the last list; no truncation in its logs; called 11:13:30 |
+
+No file under `tests/samples` changed.
+
+Per-call approval. Every one of the four ProdPilot calls stopped for approval.
+The agent's log records the decision each time as
+`prompting user (decision=None, perm_level=AcceptEdits)`, then
+`User approved tool permission ... (grant=ApproveOnce)`. An approval covered
+only the call it was given for: the same tool asked again on the next call.
+This matches Devin's documentation, "MCP tools default to prompting for
+approval". The agent's own steps, listing servers and tools, were allowed
+without asking.
+
+## What module 7.2 shows
+
+Protocol compatibility held in both IDEs: once each could start the server,
+every tool was listed and both contract forms came back intact, including the
+largest response. What differs between clients is everything around the
+protocol, and it differs in ways that matter:
+
+- Launch configuration. VS Code and Cursor resolve `${workspaceFolder}`; Devin
+  does not, and it imports the other clients' files anyway, so a config that
+  works in two IDEs breaks the third. Devin needs its own local file.
+- Approval. Devin asks before every call. Cursor, on its fresh-install
+  default, asks before none. For the Phase 3 loop, Devin's default means a
+  person approves each step, which is stricter than the fallback Section 12 of
+  the Complete Solution Document plans for, a semi-automatic loop with a single
+  upfront consent. Cursor's means the loop runs unattended and nothing in the
+  client asks before a deploy.
+- Response size. ProdPilot's largest result, 11,988 bytes, arrived whole in
+  both.

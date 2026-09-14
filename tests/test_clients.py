@@ -39,6 +39,7 @@ SAMPLES = REPO / "tests" / "samples"
 # Client name, the config file it reads, and the key holding its servers.
 CLIENTS = {
     "vscode": (".vscode/mcp.json", "servers"),
+    "cursor": (".cursor/mcp.json", "mcpServers"),
 }
 
 TOOLS = {
