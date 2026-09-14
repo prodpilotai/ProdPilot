@@ -25,7 +25,7 @@ tested" with the reason. Nothing is marked from documentation alone.
 | Client | Discovery | Tool listing | Content form | Constraint form | Per-call approval | Response size |
 | --- | --- | --- | --- | --- | --- | --- |
 | Direct stdio client, `.vscode/mcp.json` command | Pass, 14 Sep | Pass, 5 of 5, 14 Sep | Pass, SEC-002, 14 Sep | Pass, STR-003, 14 Sep | Not applicable, no person in the loop | Pass, arrives whole, 14 Sep |
-| VS Code, Copilot agent mode | Pass on VS Code 1.134.0, 21 Aug; not re-observed on 1.137.0 | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed | Not tested: Copilot quota not confirmed |
+| VS Code 1.137.0, Copilot agent | Pass, 5 tools, 14 Sep; the agent's own connection is refused once with -32022 and connects on retry | Pass, 5 of 5, 14 Sep | Pass, SEC-002, 14 Sep | Pass, STR-003, 14 Sep | Prompts before a tool's first call; allowing for the session covers its later calls, 14 Sep | Whole but not inline: over the agent's limit, saved to a file the agent read back, 14 Sep |
 | Cursor 3.20.17, Agent | Pass after the developer enabled it, 14 Sep | Pass, 5 of 5, 14 Sep | Pass, SEC-002 and BLD-001, 14 Sep | Pass, STR-003, 14 Sep | No prompt on any of 3 calls, against Cursor's documented default, 14 Sep | Pass, 28 of 28 items counted, 14 Sep |
 | Windsurf, now Devin 3.10.23, agent | Fails from the committed configs, `${workspaceFolder}` is blanked; pass from Devin's own `.devin/mcp_config.local.json`, 14 Sep | Pass, 5 of 5, 14 Sep | Pass, SEC-002 and BLD-001, 14 Sep | Pass, STR-003, 14 Sep | Prompts on every call, each approval covers one call, 14 Sep | Pass, all 28 items listed, 14 Sep |
 
@@ -101,9 +101,72 @@ September the Copilot Chat log shows the account signed in on the
 `free_educational_quota` plan with no quota error, but no chat request was made
 that day, so the log cannot show whether the allowance has reset. The GitHub
 CLI on this machine is not signed in, so the quota could not be read from the
-account either. The blocker is recorded as not confirmed resolved.
+account either. The blocker was recorded as not confirmed resolved.
 
-### To close VS Code: steps for a person at the keyboard
+Later the same day the developer reported Copilot available again, and the
+first agent request confirmed it: the agent ran, called ProdPilot, and no quota
+error appeared. The blocker open since Phase 1 is resolved, and the steps below
+were run on 14 September.
+
+### Copilot agent mode, observed 14 September
+
+Run from VS Code 1.137.0 on the `free_educational_quota` plan. In this version
+the chat's agent runs as the GitHub Copilot CLI, bundled inside VS Code as an
+agent host (`@github/copilot-win32-x64`, session type `copilotcli`, model
+`gpt-5.6-luna`). It starts its own ProdPilot process from `.vscode/mcp.json`,
+separate from the one the window starts, so its calls do not appear in the
+window's server log. Every result below was read from the agent host's log and
+from the Copilot CLI's own record of the session, which keeps each tool's
+result.
+
+Discovery. Started from MCP: List Servers, the window's server logged
+`Discovered 5 tools` within two seconds. The agent host's connection was
+refused once before it succeeded:
+
+```text
+MCP server 'prodpilot' failed (error): failed to initialize MCP client:
+JSON-RPC error: -32022: connection is serving the 2026-07-28 protocol;
+the initialize handshake is not accepted
+```
+
+The refusal comes from the MCP SDK ProdPilot is built on, `mcp` 2.0.0
+(`mcp/server/runner.py`). The SDK fixes a connection's protocol from the
+client's first request. The Copilot CLI's first request carries the 2026-07-28
+envelope, which makes the connection a 2026-07-28 one, and it then sends the
+older `initialize` handshake on the same connection, which the SDK refuses by
+design. Its automatic retry connected on protocol 2026-07-28 a second later.
+Earlier that morning, between 09:47 and 09:54, six such connections failed and
+none recovered; `.vscode/mcp.json` was emptied in the editor at 09:54:47, which
+fits someone removing a server that would not connect, though the logs do not
+say who. This is recorded and flagged, not changed: it sits in the SDK and the
+client, not in ProdPilot's own code, and `pyproject.toml` requires `mcp>=2.0.0`
+with no upper bound.
+It is a known failure path in the full chain, and its fix is left to module
+7.3, whose exit criterion is that no known unhandled failure path remains.
+
+| Check | Asked | Observed |
+| --- | --- | --- |
+| Content form | `node_express_insecure`, SEC-002 | The recorded result is ProdPilot's payload: STATIC, content, `insert_after`, anchor `express:before-routes`, in `src/server.js` |
+| Constraint form | `react_vite_ready`, STR-003 | The recorded result is ProdPilot's payload: DYNAMIC-DELEGATED, constraint, `author_within_constraint` with requirement, boundary and forbidden list |
+| Response size | `prodpilot_detect_stack`, `node_express_insecure` | Not passed inline. The model received "Output too large to read at once (10.9 KB). Saved to: ..." with a 500 character preview. The saved file holds the text and the structured copy, both identical to ProdPilot's payload, all 28 items. The agent read the file back in parts and answered 28, 5, 6 and 17 |
+
+No file under `tests/samples` changed.
+
+Per-call approval. The first call to each ProdPilot tool asked for
+confirmation. For SEC-002 the developer chose to allow for the session; the
+later STR-003 call to the same tool then ran with no prompt, its permission
+granted in the same second it was requested. `prodpilot_detect_stack`, not yet
+allowed, asked again and was allowed once. Reading the saved output file, which
+lies outside the workspace, needed its own file read approval. Whether a single
+allow once covers the next call to the same tool was not repeated.
+
+Response size, the week-one item. VS Code documents no limit, and this is the
+first observation of one: in this agent, a result of 10.9 KB is over the limit
+for inline delivery. The agent still got every byte, through the file, but it
+cost an extra step and an extra approval, and a smaller model or a stricter
+setting could stop there. Every other ProdPilot response is 3 KB or less.
+
+### Steps used for VS Code
 
 Do these in order and write down what happens at each step, including a
 failure. Never let the agent call `prodpilot_deploy` on `node_express_gated`:
@@ -266,11 +329,16 @@ protocol, and it differs in ways that matter:
 - Launch configuration. VS Code and Cursor resolve `${workspaceFolder}`; Devin
   does not, and it imports the other clients' files anyway, so a config that
   works in two IDEs breaks the third. Devin needs its own local file.
-- Approval. Devin asks before every call. Cursor, on its fresh-install
+- Approval. VS Code asks before a tool's first call and can allow it for the
+  session. Devin asks before every call. Cursor, on its fresh-install
   default, asks before none. For the Phase 3 loop, Devin's default means a
   person approves each step, which is stricter than the fallback Section 12 of
   the Complete Solution Document plans for, a semi-automatic loop with a single
   upfront consent. Cursor's means the loop runs unattended and nothing in the
   client asks before a deploy.
-- Response size. ProdPilot's largest result, 11,988 bytes, arrived whole in
-  both.
+- Response size. ProdPilot's largest result, 11,988 bytes, arrived whole and
+  inline in Cursor and Devin. In VS Code it was over the Copilot agent's
+  inline limit and reached the model through a saved file instead.
+- Protocol version. Copilot's agent in VS Code opens on the 2026-07-28
+  protocol and then sends the older handshake on the same connection, which
+  ProdPilot's MCP SDK refuses; only the client's retry makes it connect.
