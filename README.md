@@ -10,7 +10,7 @@ Shifa Tameer-e-Millat University.
 
 ## Current state
 
-Phases 1 to 6 are complete. A Node.js with Express or React with Vite project
+Phases 1 to 7 are complete. A Node.js with Express or React with Vite project
 can be audited, fixed through the IDE agent, gated, and deployed to Render with
 an active CI/CD pipeline.
 
@@ -22,18 +22,20 @@ an active CI/CD pipeline.
 | 4 | The scoring gate, looping the fix cycle until the project is ready or the ceiling is reached |
 | 5 | The deployability model, trained on 684 real Render deployments |
 | 6 | ProdPush, the nine stage pipeline from the gate to a live, smoke tested service |
+| 7 | IDE compatibility across VS Code, Cursor and Windsurf, the whole chain run on every sample, and the success metrics |
 
 Phase 1 closed with one stated gap. Invocation from Copilot agent mode is
 untested, blocked by an exhausted account quota rather than by anything in the
 project, and the two Section 8 week-one questions move to Phase 7. See
 [docs/phase1-verification.md](docs/phase1-verification.md) for the full record.
 
-Phase 7, IDE compatibility, is in progress. Every tool is proven over the
-commands in `.vscode/mcp.json` and `.cursor/mcp.json`, and each client's
-results, including failures and anything not yet tested and why, are in
-[docs/compatibility.md](docs/compatibility.md). The whole chain, from the audit
+Phase 7 records each IDE's results, including failures, in
+[docs/compatibility.md](docs/compatibility.md); the whole chain, from the audit
 to the ninth ProdPush stage, run on every sample project, and the defects that
-run found, are in [docs/pipeline.md](docs/pipeline.md).
+run found and fixed, in [docs/pipeline.md](docs/pipeline.md); and the
+determinism ratio and fix reliability by type, measured from that run, in
+[docs/metrics.md](docs/metrics.md). The DYNAMIC-DELEGATED success rate for a
+live agent is stated there as not yet measured, with why.
 
 Numbers quoted in some earlier commit messages describe a model that has since
 been corrected and replaced. See [docs/corrections.md](docs/corrections.md).

@@ -32,6 +32,10 @@ Usage, from the repository root, which holds the model the gate loads:
 
     python tests/pipeline.py OUT.json [SAMPLE ...]
     python tests/pipeline.py --markdown OUT.json
+    python tests/pipeline.py --metrics OUT.json
+
+--markdown gives the tables in docs/pipeline.md, and --metrics the fix
+reliability tables in docs/metrics.md, both from the recorded traces.
 """
 
 from __future__ import annotations
@@ -318,9 +322,106 @@ def markdown(traces: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+BUDGET = 3  # the loop's attempts per issue
+TYPES = ("STATIC", "DYNAMIC-PARAMETRIC", "DYNAMIC-DELEGATED")
+
+
+def cause(said: str) -> str:
+    """Why a rule was not verified within budget, from what the executor said."""
+    if said.startswith("no file at"):
+        return "the file it edits was not created yet"
+    if said.startswith("could not locate the anchor"):
+        return "the executor could not place the anchor"
+    if "constraint contract needs an author" in said:
+        return "no author for a constraint contract"
+    if "reverted by the regression guard" in said:
+        return "verified, then reverted by the regression guard"
+    return "applied, and the rule still failed"
+
+
+def measured(traces: list[dict]) -> dict:
+    """Module 7.4's fix reliability, per fix type, from a run's recorded contracts.
+
+    An instance is one rule on one sample the loop sent a contract for. A
+    verdict is recorded before the regression guard runs, so a fix the verifier
+    passed and the guard then reverted still reads verified; each recorded
+    regression names the rule whose fix was reverted, and that many of its
+    verified attempts are counted as reverted, never as successes.
+    """
+    rows = {kind: {"instances": 0, "sent": 0, "first": 0, "budget": 0, "end": 0,
+                   "applied": 0, "applied_verified": 0, "refused": 0,
+                   "causes": {}, "refusals": {}} for kind in TYPES}
+    for t in traces:
+        status = (t.get("end") or {}).get("status", {})
+        reverted: dict[str, int] = {}
+        for detail in t.get("regressions", []):
+            rule_id = detail.split(" broke ")[0].replace("fixing ", "").strip()
+            reverted[rule_id] = reverted.get(rule_id, 0) + 1
+        attempts: dict[str, list[dict]] = {}
+        for a in t.get("applied", []):
+            a = dict(a)
+            if a["verified"] and reverted.get(a["rule_id"], 0) > 0:
+                reverted[a["rule_id"]] -= 1
+                a["verified"] = False
+                a["said"] = "verified, then reverted by the regression guard"
+            attempts.setdefault(a["rule_id"], []).append(a)
+        for rule_id, seq in attempts.items():
+            row = rows[seq[0]["fix_type"]]
+            row["instances"] += 1
+            row["sent"] += len(seq)
+            row["first"] += bool(seq[0]["verified"])
+            within = any(a["verified"] for a in seq[:BUDGET])
+            row["budget"] += within
+            row["end"] += status.get(rule_id) == "pass"
+            done = [a for a in seq if a["claimed"]]
+            row["applied"] += len(done)
+            row["applied_verified"] += sum(1 for a in done if a["verified"])
+            if not within:
+                why = cause(seq[0]["said"])
+                row["causes"][why] = row["causes"].get(why, 0) + 1
+        for r in (t.get("gate") or {}).get("review", []):
+            if r["rule_id"] not in attempts and r["fix_type"] in rows:
+                row = rows[r["fix_type"]]
+                row["refused"] += 1
+                reason = r["reason"].split(". Candidates")[0]
+                row["refusals"][reason] = row["refusals"].get(reason, 0) + 1
+    return rows
+
+
+def share(part: int, whole: int) -> str:
+    return f"{part} of {whole} ({part / whole:.1%})" if whole else "none"
+
+
+def metrics(traces: list[dict]) -> str:
+    """The measured tables for docs/metrics.md."""
+    rows = measured(traces)
+    out = ["| Fix type | Instances | Contracts sent | First attempt verified | Verified within budget "
+           "| Passing at the end of the run | Applied as written, verified |",
+           "| --- | --- | --- | --- | --- | --- | --- |"]
+    for kind in TYPES:
+        r = rows[kind]
+        out.append(f"| {kind} | {r['instances']} | {r['sent']} | {share(r['first'], r['instances'])} "
+                   f"| {share(r['budget'], r['instances'])} | {share(r['end'], r['instances'])} "
+                   f"| {share(r['applied_verified'], r['applied'])} |")
+    out += ["", "| Fix type | Not verified within budget, because | Instances |", "| --- | --- | --- |"]
+    for kind in TYPES:
+        for why, n in sorted(rows[kind]["causes"].items(), key=lambda kv: -kv[1]):
+            out.append(f"| {kind} | {why} | {n} |")
+    p = rows["DYNAMIC-PARAMETRIC"]
+    asked = p["instances"] + p["refused"]
+    out += ["", f"DYNAMIC-PARAMETRIC ambiguity rate: {share(p['refused'], asked)} rule instances were "
+                f"refused by extraction before any contract was sent.", "",
+            "| Refused because | Instances |", "| --- | --- |"]
+    for why, n in sorted(p["refusals"].items(), key=lambda kv: -kv[1]):
+        out.append(f"| {why} | {n} |")
+    return "\n".join(out) + "\n"
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     if args[:1] == ["--markdown"]:
         sys.stdout.write(markdown(json.loads(Path(args[1]).read_text(encoding="utf-8"))))
+    elif args[:1] == ["--metrics"]:
+        sys.stdout.write(metrics(json.loads(Path(args[1]).read_text(encoding="utf-8"))))
     else:
         main(Path(args[0]).resolve(), args[1:])
