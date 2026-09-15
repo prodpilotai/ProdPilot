@@ -429,3 +429,32 @@ def test_findings_match_the_shape_the_ast_checks_produce():
         assert isinstance(f, Finding)
         assert set(f.to_dict()) == {"rule_id", "status", "file", "line", "detail"}
         assert f.counts == (f.status in (Status.PASS, Status.FAIL))
+
+
+# --------------------------------------------------------------------------
+# logging turned off for one location only (module 7.3)
+# --------------------------------------------------------------------------
+
+REACT_MANIFEST = '{"dependencies":{"react":"1","react-dom":"1"},"devDependencies":{"vite":"1"}}'
+
+
+def logging_of(tmp_path: Path, conf: str) -> Finding:
+    (tmp_path / "package.json").write_text(REACT_MANIFEST, encoding="utf-8")
+    (tmp_path / "nginx.conf").write_text(conf, encoding="utf-8")
+    return one(check_project(tmp_path, Stack.REACT_VITE), "OBS-006")
+
+
+def test_logging_off_for_one_location_only_passes(tmp_path: Path):
+    """Silencing a health path is not turning the server's logging off."""
+    f = logging_of(tmp_path, "server {\n listen 80;\n access_log /dev/stdout;\n"
+                             " error_log /dev/stderr warn;\n location /health {\n"
+                             "  access_log off;\n  return 200;\n }\n}\n")
+
+    assert f.status is Status.PASS
+
+
+def test_the_nginx_conf_prodpilot_writes_passes_its_own_logging_rule(tmp_path: Path):
+    """Found by module 7.3: every React project ProdPilot repaired failed OBS-006."""
+    from prodpilot import templates
+
+    assert logging_of(tmp_path, templates.get("BLD-009").content).status is Status.PASS

@@ -303,7 +303,10 @@ def test_the_error_handler_leaks_no_stack_trace():
 
 def test_the_dockerfile_templates_name_an_unprivileged_user():
     assert get("SEC-001").content.strip() == "USER node"
-    assert get("SEC-005").content.strip() == "USER nginx"
+    lines = get("SEC-005").content.strip().splitlines()
+    assert lines[-1] == "USER nginx"
+    # nginx cannot start as that user until its cache and pid file are its own.
+    assert "chown -R nginx:nginx /var/cache/nginx" in lines[0]
 
 
 def test_the_gitignore_templates_keep_the_env_example():

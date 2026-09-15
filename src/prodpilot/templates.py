@@ -489,6 +489,11 @@ TEMPLATES: dict[str, Template] = {
     ),
     "SEC-005": tpl(
         "tpl.react.non_root_user", Action.INSERT_AFTER, "docker:before-cmd",
+        # nginx's image leaves its cache and pid file to root, so the unprivileged
+        # user cannot start it without these. Found by module 7.3's full-chain run,
+        # where every React container ProdPilot repaired crashed on start.
+        "RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d "
+        "&& touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid\n"
         "USER nginx\n",
         "Runs the server as an unprivileged user so a compromise cannot own the container.",
         path="Dockerfile",

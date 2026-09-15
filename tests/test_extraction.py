@@ -537,3 +537,56 @@ def test_a_literal_that_is_not_on_its_line_is_refused():
     assert not got.ok
     assert "unclear" in got.reason
     assert got.values == {}
+
+
+# --------------------------------------------------------------------------
+# the install command follows the lockfile (module 7.3)
+# --------------------------------------------------------------------------
+
+# Each place a contract writes an install command, on a sample where it extracts.
+INSTALL_SITES = [
+    ("node_express_api", "BLD-001"),    # Node Dockerfile
+    ("node_express_api", "BLD-003"),    # Node CI workflow
+    ("node_express_ready", "BLD-006"),  # Node multi-stage Dockerfile
+    ("react_vite_app", "BLD-007"),      # React Dockerfile
+    ("react_vite_app", "BLD-010"),      # React CI workflow
+    ("react_vite_ready", "BLD-012"),    # React build and serve stages
+]
+
+
+@pytest.mark.parametrize("sample, rule_id", INSTALL_SITES)
+def test_a_project_with_no_lockfile_installs_with_npm_install(sample: str, rule_id: str):
+    """npm ci refuses without a package-lock.json, found by module 7.3's run."""
+    src = src_for(sample)
+    assert not src.locks
+
+    got = extract(src, issue(rule_id))
+    written = json.dumps(got.values)
+
+    assert got.ok, got.reason
+    assert "npm install" in written
+    assert "npm ci" not in written
+
+
+@pytest.mark.parametrize("sample, rule_id", INSTALL_SITES)
+def test_a_package_lock_keeps_the_clean_install(sample: str, rule_id: str, tmp_path: Path):
+    root = tmp_path / "project"
+    shutil.copytree(SAMPLES / sample, root)
+    (root / "package-lock.json").write_text('{"lockfileVersion": 3}', encoding="utf-8")
+
+    got = extract(load(root), issue(rule_id))
+    written = json.dumps(got.values)
+
+    assert got.ok, got.reason
+    assert "npm ci" in written
+    assert "npm install" not in written
+
+
+def test_the_react_images_can_start_as_their_unprivileged_user():
+    """Found by module 7.3: nginx could not start as nginx, its cache owned by root."""
+    from prodpilot.extraction import DOCKERFILE_REACT, STAGES_REACT
+
+    for template in (DOCKERFILE_REACT, STAGES_REACT):
+        lines = template.splitlines()
+        user = lines.index("USER nginx")
+        assert "chown -R nginx:nginx /var/cache/nginx" in lines[user - 1]

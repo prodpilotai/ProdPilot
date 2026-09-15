@@ -492,6 +492,22 @@ def check_csp(tree: Tree, path: str) -> Finding:
     return Finding(rule, Status.FAIL, path, None, f"not configured: {', '.join(missing)}")
 
 
+def declared(tree: Tree, node: dict | None) -> dict | None:
+    """The value a plain variable was declared with, or None.
+
+    Lets ENV-002 follow `const port = process.env.PORT || 3000` into
+    `app.listen(port)`, the common way to write it, which module 7.3's
+    full-chain run found failing as though the port were not read at all.
+    """
+    if not node or node.get("type") != "Identifier":
+        return None
+    for n in walk(tree.ast):
+        if (n.get("type") == "VariableDeclarator"
+                and (n.get("id") or {}).get("name") == node.get("name")):
+            return n.get("init")
+    return None
+
+
 def check_port(tree: Tree, path: str) -> Finding:
     """ENV-002: the listening port must come from the environment."""
     rule = "ENV-002"
@@ -508,7 +524,7 @@ def check_port(tree: Tree, path: str) -> Finding:
         args = call.get("arguments") or []
         if not args:
             continue
-        if env_ref(args[0]):
+        if env_ref(args[0]) or env_ref(declared(tree, args[0])):
             return Finding(rule, Status.PASS, path, line_of(call),
                            "the port is read from the environment")
         if args[0].get("type") == "Literal":

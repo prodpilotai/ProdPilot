@@ -317,6 +317,25 @@ def manager(src: Source) -> Extract:
     )
 
 
+# Each manager's install command, held to its lockfile.
+INSTALLS = {"npm": "npm ci", "yarn": "yarn install --frozen-lockfile",
+            "pnpm": "pnpm install --frozen-lockfile"}
+
+
+def install_of(pm: Extract) -> str:
+    """The install command for the manager manager found.
+
+    npm ci refuses to run without a package-lock.json, so a project with no
+    lockfile at all installs with npm install. Found by module 7.3's full-chain
+    run, where every lockfile-less project the loop repaired then failed its
+    Docker build. yarn and pnpm are only chosen when their own lockfile exists,
+    so their frozen installs always have one to read.
+    """
+    if not pm.values.get("lock"):
+        return "npm install"
+    return INSTALLS[pm.values["manager"]]
+
+
 def node_version(src: Source) -> str:
     """The Node major version to build against."""
     engines = src.pkg.get("engines")
@@ -453,8 +472,7 @@ def dockerfile_node(src: Source, issue: RuleResult) -> Extract:
     pm = manager(src)
     if not pm.ok:
         return pm
-    install = {"npm": "npm ci", "yarn": "yarn install --frozen-lockfile",
-               "pnpm": "pnpm install --frozen-lockfile"}[pm.values["manager"]]
+    install = install_of(pm)
     return found(
         entry=entry.values["entry"],
         node=node_version(src),
@@ -471,8 +489,7 @@ def dockerfile_react(src: Source, issue: RuleResult) -> Extract:
     pm = manager(src)
     if not pm.ok:
         return pm
-    install = {"npm": "npm ci", "yarn": "yarn install --frozen-lockfile",
-               "pnpm": "pnpm install --frozen-lockfile"}[pm.values["manager"]]
+    install = install_of(pm)
     run = {"npm": "npm run build", "yarn": "yarn build", "pnpm": "pnpm build"}[
         pm.values["manager"]
     ]
@@ -495,8 +512,7 @@ def ci_workflow(src: Source, issue: RuleResult) -> Extract:
     if not pm.ok:
         return pm
     which = pm.values["manager"]
-    install = {"npm": "npm ci", "yarn": "yarn install --frozen-lockfile",
-               "pnpm": "pnpm install --frozen-lockfile"}[which]
+    install = install_of(pm)
     steps = [install]
     if isinstance(src.scripts.get("build"), str):
         steps.append({"npm": "npm run build", "yarn": "yarn build", "pnpm": "pnpm build"}[which])
@@ -528,8 +544,7 @@ def stages_node(src: Source, issue: RuleResult) -> Extract:
     pm = manager(src)
     if not pm.ok:
         return pm
-    install = {"npm": "npm ci", "yarn": "yarn install --frozen-lockfile",
-               "pnpm": "pnpm install --frozen-lockfile"}[pm.values["manager"]]
+    install = install_of(pm)
     return found(image=images[0], command=command, install=install)
 
 
@@ -545,8 +560,7 @@ def stages_react(src: Source, issue: RuleResult) -> Extract:
     if not pm.ok:
         return pm
     which = pm.values["manager"]
-    install = {"npm": "npm ci", "yarn": "yarn install --frozen-lockfile",
-               "pnpm": "pnpm install --frozen-lockfile"}[which]
+    install = install_of(pm)
     run = {"npm": "npm run build", "yarn": "yarn build", "pnpm": "pnpm build"}[which]
     return found(image=images[0], install=install, build=run)
 
@@ -745,6 +759,7 @@ RUN {build}
 FROM nginx:1.27-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d && touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
 USER nginx
 EXPOSE 8080
 """
@@ -789,6 +804,7 @@ RUN {build}
 
 FROM nginx:1.27-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d && touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
 USER nginx
 EXPOSE 8080
 """

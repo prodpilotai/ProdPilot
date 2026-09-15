@@ -31,7 +31,9 @@ project, and the two Section 8 week-one questions move to Phase 7. See
 Phase 7, IDE compatibility, is in progress. Every tool is proven over the
 commands in `.vscode/mcp.json` and `.cursor/mcp.json`, and each client's
 results, including failures and anything not yet tested and why, are in
-[docs/compatibility.md](docs/compatibility.md).
+[docs/compatibility.md](docs/compatibility.md). The whole chain, from the audit
+to the ninth ProdPush stage, run on every sample project, and the defects that
+run found, are in [docs/pipeline.md](docs/pipeline.md).
 
 Numbers quoted in some earlier commit messages describe a model that has since
 been corrected and replaced. See [docs/corrections.md](docs/corrections.md).

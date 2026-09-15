@@ -197,8 +197,14 @@ def encrypt(public_key: str, value: str) -> str:
     except ImportError as exc:
         raise WireError(f"PyNaCl is not installed: {exc}") from exc
 
-    key = public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
-    sealed = public.SealedBox(key).encrypt(value.encode("utf-8"))
+    # A key GitHub returned that is not a usable key stops stage 8 with a reason
+    # rather than raising out of the pipeline, found by module 7.3's full-chain
+    # run. PyNaCl raises ValueError for a key of the wrong length or encoding.
+    try:
+        key = public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
+        sealed = public.SealedBox(key).encrypt(value.encode("utf-8"))
+    except (ValueError, TypeError) as exc:
+        raise WireError(f"the repository public key is not a valid key: {exc}") from exc
     return base64.b64encode(sealed).decode("utf-8")
 
 

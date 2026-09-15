@@ -178,8 +178,12 @@ class Build:
 
     def summary(self) -> str:
         if self.ok:
-            state = "healthy" if self.health and self.health.ok else "not healthy"
-            return f"{self.project}: image built, container {state}"
+            if self.health and self.health.ok:
+                return f"{self.project}: image built, container healthy"
+            # Why it was not healthy travels with the summary, so the stage that
+            # stops on it can say, for example that the container exited on start.
+            why = f": {self.health.detail}" if self.health and self.health.detail else ""
+            return f"{self.project}: image built, container not healthy{why}"
         if self.fault:
             return f"{self.project}: build failed, {self.fault.value}"
         return f"{self.project}: build failed, unclassified, needs manual review"
@@ -248,20 +252,68 @@ def port_of(logs: str) -> int | None:
 def probe(url: str, wait: float = WAIT, every: float = EVERY,
           sleep=time.sleep, now=time.monotonic) -> Health:
     """Ask for /health until it answers or the wait runs out."""
+    return reached([url], wait=wait, every=every, sleep=sleep, now=now)
+
+
+def reached(urls: list[str], wait: float = WAIT, every: float = EVERY,
+            sleep=time.sleep, now=time.monotonic) -> Health:
+    """Ask each URL for /health in turn until one answers or the wait runs out.
+
+    An image can publish more than one port: nginx's base image exposes 80 and a
+    Dockerfile built on it adds its own, so probing only the first refused a
+    healthy container. Found by module 7.3's full-chain run.
+    """
     deadline = now() + wait
     last = "no response"
     while now() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=5) as reply:
-                if 200 <= reply.status < 300:
-                    return Health(True, url, reply.status, "the container answered")
-                last = f"status {reply.status}"
-        except urllib.error.HTTPError as exc:
-            last = f"status {exc.code}"
-        except (urllib.error.URLError, OSError) as exc:
-            last = str(getattr(exc, "reason", exc))
+        for url in urls:
+            try:
+                with urllib.request.urlopen(url, timeout=5) as reply:
+                    if 200 <= reply.status < 300:
+                        return Health(True, url, reply.status, "the container answered")
+                    last = f"status {reply.status}"
+            except urllib.error.HTTPError as exc:
+                last = f"status {exc.code}"
+            except (urllib.error.URLError, OSError) as exc:
+                last = str(getattr(exc, "reason", exc))
         sleep(every)
-    return Health(False, url, None, f"no healthy response within {wait:.0f}s: {last}")
+    return Health(False, urls[0] if urls else "", None,
+                  f"no healthy response within {wait:.0f}s: {last}")
+
+
+def exited(container) -> Health | None:
+    """A container that stopped after starting, with the last line it printed.
+
+    Found by module 7.3's full-chain run, where a container that crashed on
+    start was reported as publishing no port. The line is for a person, like
+    the one matched line a Build carries; no fault is set, so it goes to manual
+    review rather than into the loop.
+    """
+    container.reload()
+    state = container.attrs.get("State") or {}
+    if state.get("Status") != "exited":
+        return None
+    said_last = telling(container.logs().decode("utf-8", "replace").splitlines())
+    return Health(False, "", None,
+                  f"the container exited on start with code {state.get('ExitCode')}: {said_last}")
+
+
+# Words a line that explains a crash tends to carry.
+TELLING = re.compile(r"error|emerg|fatal|exception", re.IGNORECASE)
+
+
+def telling(lines: list[str]) -> str:
+    """The line of a container's output that best says why it stopped.
+
+    The last line that reads as an error, else the last line. Node ends a
+    crash with its own version banner, so the last line alone would report
+    "Node.js v20" where the cause is the "Error: Cannot find module" above it.
+    """
+    kept = [line.strip() for line in lines if line.strip()]
+    if not kept:
+        return "no output"
+    errors = [line for line in kept if TELLING.search(line)]
+    return (errors[-1] if errors else kept[-1])[:200]
 
 
 def client():
@@ -277,6 +329,36 @@ def client():
     except DockerException as exc:
         raise BuildUnavailable(f"cannot reach the Docker daemon: {exc}") from exc
     return made
+
+
+# The port Render gives every web service that does not choose its own. Render's
+# web service documentation: "The default value of PORT is 10000 for all Render
+# web services", and "If you bind your HTTP server to a different port, Render is
+# usually able to detect and use it." So Render needs no EXPOSE and finds the port
+# an application binds. This stage cannot look for it the way Render does, so it
+# tells the application which port to use and probes that one. See chosen.
+RENDER_PORT = "10000"
+
+
+def chosen(exposed: list[int], env: Mapping[str, str]) -> str:
+    """The PORT the container is given.
+
+    The project's own sealed PORT first. Else the port the image exposes, so an
+    application that reads PORT listens where the image says it does. Else, for
+    an image that exposes nothing, as with every Dockerfile the fix loop writes,
+    Render's default, which start then publishes so the probe can reach it.
+
+    Found by module 7.3's full-chain run: with no PORT given, an application
+    reading PORT fell back to whatever its code names, and with no port exposed
+    the loop's own Dockerfiles could never pass this stage.
+    """
+    if env.get("PORT"):
+        return str(env["PORT"])
+    if exposed:
+        # A base image's own port, such as nginx's 80, sits below the one a
+        # Dockerfile built on it adds, so the highest is the project's.
+        return str(exposed[-1])
+    return RENDER_PORT
 
 
 def run(root: str | Path, env: Mapping[str, str] | None = None,
@@ -349,24 +431,32 @@ def start(docker, image, env: Mapping[str, str], wait: float) -> tuple[Health, F
 
     container = None
     try:
+        declared = (image.attrs.get("Config") or {}).get("ExposedPorts") or {}
+        exposed = sorted(int(key.split("/")[0]) for key in declared)
+        port = chosen(exposed, env)
         container = docker.containers.run(
             image.id, detach=True, publish_all_ports=True,
-            environment=dict(env), remove=False,
+            ports=None if exposed else {f"{port}/tcp": None},
+            environment={**env, "PORT": port}, remove=False,
         )
         container.reload()
         published = ports_of(container)
         if not published:
+            gone = exited(container)
+            if gone is not None:
+                return gone, None
             return Health(False, "", None, "the container publishes no port"), Fault.PORT
 
-        exposed, host = published[0]
-        url = f"http://127.0.0.1:{host}{HEALTH}"
-        health = probe(url, wait=wait)
+        health = reached([f"http://127.0.0.1:{host}{HEALTH}" for _, host in published], wait=wait)
         if health.ok:
             return health, None
+        gone = exited(container)
+        if gone is not None:
+            return gone, None
 
         logs = container.logs().decode("utf-8", "replace")
         heard = port_of(logs)
-        if heard is not None and heard != exposed:
+        if heard is not None and heard not in [port for port, _ in published]:
             return health, Fault.PORT
         return health, None
     except (APIError, DockerException) as exc:

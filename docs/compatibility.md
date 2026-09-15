@@ -143,6 +143,10 @@ client, not in ProdPilot's own code, and `pyproject.toml` requires `mcp>=2.0.0`
 with no upper bound.
 It is a known failure path in the full chain, and its fix is left to module
 7.3, whose exit criterion is that no known unhandled failure path remains.
+Module 7.3 investigated it and found the refusal to be correct, documented
+behaviour of the SDK that a client recovers from by probing again on the same
+connection; the evidence, and why the server is not changed, are in
+[pipeline.md](pipeline.md).
 
 | Check | Asked | Observed |
 | --- | --- | --- |

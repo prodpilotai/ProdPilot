@@ -381,3 +381,164 @@ def test_an_unclassifiable_failure_goes_to_review(tmp_path: Path):
     assert result.review is True
     assert result.actionable is False
     assert "unknown instruction" in result.detail
+
+
+# --------------------------------------------------------------------------
+# the port Render gives
+# --------------------------------------------------------------------------
+
+
+def test_the_port_given_follows_the_project_then_the_image_then_render():
+    """Found by module 7.3's full-chain run, where stage 3 refused projects Render runs.
+
+    A PORT the project sealed wins. Else the port the image exposes, so an
+    application reading PORT listens where the image says. Else Render's own
+    default, for an image that exposes nothing, as the fix loop's Dockerfiles do.
+    """
+    assert buildtest.chosen([], {}) == buildtest.RENDER_PORT == "10000"
+    assert buildtest.chosen([3000], {}) == "3000"
+    assert buildtest.chosen([3000], {"PORT": "4000", "CORS_ORIGIN": "x"}) == "4000"
+
+
+@needs_docker
+def test_a_dockerfile_that_exposes_no_port_answers_on_renders(tmp_path: Path):
+    """The shape of every Dockerfile the fix loop writes: no EXPOSE."""
+    root = project(
+        tmp_path,
+        "FROM node:20-alpine\nWORKDIR /app\nCOPY server.js .\nUSER node\n"
+        'CMD ["node", "server.js"]\n',
+        {"server.js":
+            'const http = require("http");\n'
+            'http.createServer((req, res) => { res.writeHead(200); res.end("ok"); })\n'
+            "  .listen(process.env.PORT || 3000);\n"},
+    )
+
+    result = run(root, wait=40)
+
+    assert result.ok is True, result.detail
+    assert result.health.ok is True, result.health.detail
+    assert result.health.status == 200
+
+
+@needs_docker
+def test_an_image_exposing_its_own_port_is_told_to_use_it():
+    """docker_ok exposes 3000 and reads PORT; with nothing sealed it listens on 3000."""
+    result = run(OK, wait=40)
+
+    assert result.ok is True, result.detail
+    assert result.health.ok is True, result.health.detail
+
+
+@needs_docker
+def test_the_demo_with_no_env_file_answers_health():
+    """The committed demo reads PORT and exposes 10000, and ships no .env."""
+    demo = Path(__file__).resolve().parent / "samples" / "node_express_gated"
+    assert not (demo / ".env").exists()
+
+    result = run(demo, wait=40)
+
+    assert result.ok is True, result.detail
+    assert result.health.ok is True, result.health.detail
+    assert result.health.status == 200
+
+
+# --------------------------------------------------------------------------
+# more than one published port, and a container that stops (module 7.3)
+# --------------------------------------------------------------------------
+
+
+def test_the_highest_exposed_port_is_the_projects():
+    """nginx's base image exposes 80 beneath the 8080 a Dockerfile adds."""
+    assert buildtest.chosen([80, 8080], {}) == "8080"
+
+
+def test_every_published_port_is_asked_until_one_answers():
+    import http.server
+    import socket
+    import threading
+
+    class Health(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    live = http.server.HTTPServer(("127.0.0.1", 0), Health)
+    threading.Thread(target=live.serve_forever, daemon=True).start()
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    dead = closed.getsockname()[1]
+    closed.close()
+    try:
+        answer = buildtest.reached(
+            [f"http://127.0.0.1:{dead}/health", f"http://127.0.0.1:{live.server_port}/health"],
+            wait=10, every=0.1)
+    finally:
+        live.shutdown()
+
+    assert answer.ok is True
+    assert answer.url.endswith(f":{live.server_port}/health")
+
+
+@needs_docker
+def test_an_nginx_image_exposing_two_ports_answers_on_its_own(tmp_path: Path):
+    """The shape of every React Dockerfile ProdPilot writes, which exposes 80 and 8080."""
+    root = project(
+        tmp_path,
+        "FROM nginx:1.27-alpine\n"
+        "COPY nginx.conf /etc/nginx/conf.d/default.conf\n"
+        "RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d "
+        "&& touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid\n"
+        "USER nginx\nEXPOSE 8080\n",
+        {"nginx.conf": "server {\n    listen 8080;\n    location /health {\n"
+                       "        return 200 \"ok\";\n    }\n}\n"},
+    )
+
+    result = run(root, wait=40)
+
+    assert result.ok is True, result.detail
+    assert result.health.ok is True, result.health.detail
+
+
+@needs_docker
+def test_a_container_that_stops_on_start_says_so(tmp_path: Path):
+    root = project(
+        tmp_path,
+        'FROM node:20-alpine\nEXPOSE 3000\nCMD ["node", "-e", "console.log(\'cannot start\'); process.exit(3)"]\n',
+    )
+
+    result = run(root, wait=8)
+
+    assert result.ok is True, "the image builds"
+    assert result.health.ok is False
+    assert "exited on start with code 3" in result.health.detail
+    assert "cannot start" in result.health.detail
+    assert result.fault is None, "a crash is for a person, not a taxonomy entry"
+
+
+def test_an_unhealthy_container_says_why_in_its_summary():
+    """The stage that stops on it reports the summary, found by module 7.3's run."""
+    crashed = Build("demo", True, image="tag", health=Health(
+        False, "", None, "the container exited on start with code 1: Error: Cannot find module"))
+
+    assert crashed.summary() == ("demo: image built, container not healthy: the container "
+                                 "exited on start with code 1: Error: Cannot find module")
+    assert Build("demo", True, image="tag", health=Health(True, "u", 200, "ok")).summary() == \
+        "demo: image built, container healthy"
+
+
+def test_the_line_that_explains_a_crash_is_the_one_reported():
+    """Node ends a crash with its version banner, which says nothing about why."""
+    node = ["node:internal/modules/cjs/loader:1210", "  throw err;", "  ^", "",
+            "Error: Cannot find module '../models/User'", "Require stack:",
+            "- /app/src/server.js", "}", "", "Node.js v20.20.2"]
+    nginx = ["/docker-entrypoint.sh: Configuration complete; ready for start up",
+             'nginx: [emerg] mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)']
+
+    assert buildtest.telling(node) == "Error: Cannot find module '../models/User'"
+    assert buildtest.telling(nginx).startswith("nginx: [emerg] mkdir()")
+    assert buildtest.telling(["cannot start"]) == "cannot start"
+    assert buildtest.telling([]) == "no output"

@@ -489,3 +489,11 @@ def test_a_directory_that_is_not_a_project_is_refused(tmp_path: Path, keys):
 
     assert result.ok is False
     assert "not a project directory" in result.detail
+
+
+def test_an_unusable_repository_key_stops_stage_eight_with_a_reason(project):
+    """Found by module 7.3's run: a key PyNaCl cannot read raised out of prodpush.run."""
+    result, _ = wired(project, (None, "not-a-real-public-key"))
+
+    assert result.ok is False
+    assert "not a valid key" in result.detail

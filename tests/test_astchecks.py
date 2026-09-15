@@ -651,3 +651,50 @@ def test_express_file_is_not_mistaken_for_a_client_router(tmp_path: Path):
     findings = [f for f in check_project(tmp_path) if f.rule_id == "STR-004"]
 
     assert all(f.status is Status.SKIPPED for f in findings)
+
+
+# --------------------------------------------------------------------------
+# a port read into a variable first (module 7.3)
+# --------------------------------------------------------------------------
+
+
+def test_a_port_read_into_a_variable_first_passes(tmp_path: Path):
+    """The most common way to write it, which module 7.3's run found failing."""
+    src = tmp_path / "server.js"
+    src.write_text(
+        'const express = require("express");\n'
+        "const app = express();\n"
+        "const port = process.env.PORT || 3000;\n"
+        "app.listen(port);\n",
+        encoding="utf-8",
+    )
+
+    assert only(check_file(src, tmp_path), "ENV-002", "server.js").status is Status.PASS
+
+
+def test_a_plain_http_server_on_such_a_variable_passes(tmp_path: Path):
+    """The shape of the docker_ok sample, a chained listen on a bare http server."""
+    src = tmp_path / "server.js"
+    src.write_text(
+        'const http = require("http");\n'
+        "const port = process.env.PORT || 3000;\n"
+        "http\n"
+        "  .createServer((req, res) => res.end())\n"
+        "  .listen(port, () => console.log(`listening on ${port}`));\n",
+        encoding="utf-8",
+    )
+
+    assert only(check_file(src, tmp_path), "ENV-002", "server.js").status is Status.PASS
+
+
+def test_a_variable_holding_a_literal_port_still_fails(tmp_path: Path):
+    src = tmp_path / "server.js"
+    src.write_text(
+        'const express = require("express");\n'
+        "const app = express();\n"
+        "const port = 3000;\n"
+        "app.listen(port);\n",
+        encoding="utf-8",
+    )
+
+    assert only(check_file(src, tmp_path), "ENV-002", "server.js").status is Status.FAIL

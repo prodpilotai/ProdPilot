@@ -19,6 +19,7 @@ receives one shape from the whole audit engine.
 
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections.abc import Callable
@@ -361,13 +362,19 @@ def has_health_path(p: Project, rule: str) -> Finding:
                    "no health path, so the platform cannot probe the service cheaply")
 
 
+# A location block's own logging does not describe the server's. ProdPilot's own
+# nginx template turns access logging off for /health alone, which module 7.3's
+# full-chain run found failing OBS-006 as though logging were off everywhere.
+LOCATION = re.compile(r"location\b[^{]*\{[^{}]*\}")
+
+
 def has_logging(p: Project, rule: str) -> Finding:
     blocked = nginx_guard(p, rule)
     if blocked:
         return blocked
     body = p.nginx.lower()
     if "access_log" in body and "error_log" in body:
-        if "access_log off" in body:
+        if "access_log off" in LOCATION.sub("", body):
             return Finding(rule, Status.FAIL, "nginx.conf", None, "access logging is turned off")
         return Finding(rule, Status.PASS, "nginx.conf", None, "access and error logging are set")
     missing = [n for n in ("access_log", "error_log") if n not in body]
