@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 from prodpilot import __version__, audit, dispatch, prodpush, verify
 from prodpilot.constraints import ContractError
@@ -86,12 +87,23 @@ def build_server() -> MCPServer:
     return server
 
 
+# What each tool does to its environment, for clients deciding how to treat a
+# call. The protocol makes these hints, not a guard: a client may ignore them,
+# so the deploy tool's description still asks the agent to confirm first. Four
+# tools only read the project; the deploy tool pushes to GitHub, creates a
+# Render service and replaces its environment values.
+READS = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+DEPLOYS = ToolAnnotations(read_only_hint=False, destructive_hint=True,
+                          idempotent_hint=False, open_world_hint=True)
+
+
 def register_tools(server: MCPServer) -> None:
     """Register the tools this module owns."""
 
     @server.tool(
         name=PING_TOOL_NAME,
         title="ProdPilot connectivity check",
+        annotations=READS,
         description=(
             "Confirm that the ProdPilot MCP server is running and reachable. "
             "Returns a fixed status payload. Reads no files and analyses no "
@@ -115,6 +127,7 @@ def register_tools(server: MCPServer) -> None:
     @server.tool(
         name=DETECT_STACK_TOOL_NAME,
         title="Detect project stack and load blueprint",
+        annotations=READS,
         description=(
             "Identify whether a project directory is Node.js with Express or "
             "React with Vite, and return the production blueprint for the "
@@ -152,6 +165,7 @@ def register_tools(server: MCPServer) -> None:
     @server.tool(
         name=FIX_INSTRUCTION_TOOL_NAME,
         title="Get the fix instruction for one failing rule",
+        annotations=READS,
         description=(
             "Return the fix contract for one rule that the audit reports as "
             "failing. The form depends on the rule. A content contract carries "
@@ -190,6 +204,7 @@ def register_tools(server: MCPServer) -> None:
     @server.tool(
         name=FIX_APPLIED_TOOL_NAME,
         title="Report an applied fix and get the verified outcome",
+        annotations=READS,
         description=(
             "Report that you have applied the fix for one rule, and receive the "
             "outcome. Your report is recorded but is never the outcome: "
@@ -269,6 +284,7 @@ def register_tools(server: MCPServer) -> None:
     @server.tool(
         name=DEPLOY_TOOL_NAME,
         title="Deploy a project that passes the scoring gate",
+        annotations=DEPLOYS,
         description=(
             "Run the ProdPush pipeline on a project: the scoring gate, "
             "pre-flight checks, environment sealing, a local Docker build "

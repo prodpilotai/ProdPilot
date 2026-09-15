@@ -21,7 +21,14 @@ from pathlib import Path
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
 from prodpilot import __version__
-from prodpilot.server import PING_TOOL_NAME, SERVER_NAME
+from prodpilot.server import (
+    DEPLOY_TOOL_NAME,
+    DETECT_STACK_TOOL_NAME,
+    FIX_APPLIED_TOOL_NAME,
+    FIX_INSTRUCTION_TOOL_NAME,
+    PING_TOOL_NAME,
+    SERVER_NAME,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -97,3 +104,27 @@ async def test_stdout_carries_only_protocol_frames() -> None:
 
         assert PING_TOOL_NAME in [tool.name for tool in listed.tools]
         assert result.is_error is False
+
+
+async def test_each_tool_says_whether_it_changes_anything() -> None:
+    """The hints reach a client over the real transport.
+
+    Without them Devin filed all five tools under Write. Only the deploy tool
+    acts outside the project's files, pushing to GitHub and creating a Render
+    service, so it alone is marked as changing its environment.
+    """
+    async with connected_session() as client:
+        listed = await client.list_tools()
+
+    hints = {tool.name: tool.annotations for tool in listed.tools}
+    assert set(hints) == {PING_TOOL_NAME, DETECT_STACK_TOOL_NAME, FIX_INSTRUCTION_TOOL_NAME,
+                          FIX_APPLIED_TOOL_NAME, DEPLOY_TOOL_NAME}
+
+    deploy = hints.pop(DEPLOY_TOOL_NAME)
+    assert deploy.read_only_hint is False
+    assert deploy.destructive_hint is True
+    assert deploy.idempotent_hint is False
+    assert deploy.open_world_hint is True
+    for name, hint in hints.items():
+        assert hint.read_only_hint is True, name
+        assert hint.open_world_hint is False, name
