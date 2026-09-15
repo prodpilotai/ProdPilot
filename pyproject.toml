@@ -10,8 +10,8 @@ requires-python = ">=3.11,<3.15"
 license = { text = "MIT" }
 authors = [
     { name = "Muhammad Sudais Khalid", email = "msudaiskhalid.ai@gmail.com" },
-    { name = "Muhammad Farooq Khan" },
-    { name = "Muhammad Talha Khan" },
+    { name = "Muhammad Farooq Khan", email = "farooqhoi52@gmail.com" },
+    { name = "Muhammad Talha Khan", email = "hotikhanbhai@gmail.com" },
 ]
 dependencies = [
     "mcp>=2.0.0",
