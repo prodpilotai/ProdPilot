@@ -14,7 +14,11 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import shutil
 import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -24,7 +28,10 @@ from prodpilot import cicd, projectstate, push
 from prodpilot.cicd import (
     ACTIVE,
     APP_URL,
+    ENDED,
+    EVERY,
     KEY,
+    POLLS,
     RENDER,
     SECRETS,
     SERVICE,
@@ -298,6 +305,221 @@ def test_a_static_site_is_checked_at_its_root_not_at_health():
     assert '"}/"' not in text or True
     assert "answers on /\n" in text or "answered on /\"" in text
     assert "/health" not in text
+
+
+def test_the_workflow_waits_for_the_deploy_it_started():
+    """A fixed wait could pass against the previous instance."""
+    text = workflow()
+
+    assert "sleep 90" not in text
+    assert "steps.trigger.outputs.deploy" in text
+    assert "/deploys/$DEPLOY_ID" in text
+
+
+def test_the_workflow_treats_as_ended_exactly_what_stage_6_treats_as_failed():
+    from prodpilot import monitor
+    from prodpilot.provider import Status
+    from prodpilot.render import STATES as DEPLOY_STATES
+
+    assert ENDED
+    assert set(ENDED) == {s for s, v in DEPLOY_STATES.items() if v is Status.FAILED}
+    assert POLLS * EVERY == monitor.LIMIT
+
+
+# --------------------------------------------------------------------------
+# the workflow's own steps, run by bash against scripted Render answers
+# --------------------------------------------------------------------------
+
+
+def find_bash() -> str | None:
+    """A POSIX bash, never the WSL launcher Windows keeps in System32."""
+    found = shutil.which("bash")
+    if found and "system32" not in found.lower():
+        return found
+    git = shutil.which("git")
+    if git:
+        beside = Path(git).resolve().parents[1] / "bin" / "bash.exe"
+        if beside.is_file():
+            return str(beside)
+    return None
+
+
+BASH = find_bash()
+needs_bash = pytest.mark.skipif(BASH is None, reason="no bash to run the workflow's steps")
+
+# Stands in for curl: answers the trigger from the file post (a status code
+# line, then the body), the deploy list from list, and each status poll with
+# the next word of states, logging every call.
+FAKE_CURL = """\
+import json, os, pathlib, sys
+args = sys.argv[1:]
+here = pathlib.Path(os.environ["FAKE"])
+with open(here / "calls", "a") as log:
+    log.write(" ".join(args) + "\\n")
+url = args[-1]
+if "-X" in args:
+    code, body = (here / "post").read_text().split("\\n", 1)
+    pathlib.Path(args[args.index("-o") + 1]).write_text(body)
+    sys.stdout.write(code)
+elif "?limit=" in url:
+    sys.stdout.write((here / "list").read_text())
+else:
+    states = (here / "states").read_text().split()
+    seen = here / "polls"
+    n = int(seen.read_text()) if seen.exists() else 0
+    seen.write_text(str(n + 1))
+    sys.stdout.write(json.dumps({"status": states[min(n, len(states) - 1)]}))
+"""
+
+
+# No step run here may reach Render. The shims go first on PATH inside the
+# script itself, since Git for Windows' bash puts its own /usr/bin ahead of any
+# PATH it is given, and the step does not start unless curl, python3 and sleep
+# resolve to them. As a second guard every proxy points at a closed local
+# port, so even a real curl could not leave the machine.
+SHIMS_MISSING = 97
+GUARD = f"""\
+if command -v cygpath >/dev/null 2>&1; then SHIMS=$(cygpath -u "$SHIMS"); fi
+export PATH="$SHIMS:$PATH"
+for tool in curl python3 sleep; do
+  if [ "$(command -v "$tool")" != "$SHIMS/$tool" ]; then
+    echo "the $tool stand-in is not first on PATH: $(command -v "$tool")" >&2
+    exit {SHIMS_MISSING}
+  fi
+done
+"""
+NO_NETWORK = {name: "http://127.0.0.1:9" for name in
+              ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")}
+
+
+def steps(text: str) -> dict[str, str]:
+    """Each step's name and run script, as the runner takes them."""
+    lines = text.splitlines()
+    out: dict[str, str] = {}
+    name = ""
+    for i, line in enumerate(lines):
+        bare = line.strip()
+        if bare.startswith("- name: "):
+            name = bare[len("- name: "):]
+        elif bare == "run: |":
+            indent = len(lines[i + 1]) - len(lines[i + 1].lstrip())
+            body = []
+            for nxt in lines[i + 1:]:
+                if nxt.strip() and len(nxt) - len(nxt.lstrip()) < indent:
+                    break
+                body.append(nxt[indent:])
+            out[name] = "\n".join(body).rstrip() + "\n"
+    return out
+
+
+def run_step(tmp: Path, step: str, post: str = "", deploys: str = "[]",
+             states: str = "live", deploy: str = "") -> tuple[subprocess.CompletedProcess, str]:
+    """Run one step the way the runner does, bash -e with pipefail."""
+    shims = tmp / "bin"
+    shims.mkdir(exist_ok=True)
+    python = Path(sys.executable).as_posix()
+    (tmp / "fake_curl.py").write_text(FAKE_CURL, encoding="utf-8")
+    for name, body in (("curl", f'exec "{python}" "{(tmp / "fake_curl.py").as_posix()}" "$@"'),
+                       ("python3", f'exec "{python}" "$@"'),
+                       ("sleep", "exit 0")):
+        (shims / name).write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8", newline="\n")
+        (shims / name).chmod(0o755)
+    (tmp / "post").write_text(post, encoding="utf-8")
+    (tmp / "list").write_text(deploys, encoding="utf-8")
+    (tmp / "states").write_text(states, encoding="utf-8")
+    script = tmp / "step.sh"
+    script.write_text(GUARD + steps(workflow())[step], encoding="utf-8", newline="\n")
+    output = tmp / "github_output"
+    output.write_text("", encoding="utf-8")
+    env = {**os.environ, "SHIMS": shims.as_posix(), "FAKE": str(tmp),
+           "GITHUB_OUTPUT": output.as_posix(), "RENDER_API_KEY": "rnd_test",
+           "SERVICE_ID": "srv-test", "DEPLOY_ID": deploy, **NO_NETWORK}
+    done = subprocess.run([BASH, "-eo", "pipefail", script.as_posix()], cwd=tmp, env=env,
+                          capture_output=True, text=True, timeout=180)
+    assert done.returncode != SHIMS_MISSING, done.stderr
+    return done, output.read_text(encoding="utf-8")
+
+
+def created(seconds: float) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+
+
+TRIGGER = "Trigger the Render deploy"
+WAIT = "Wait for that deploy to go live"
+
+
+def test_the_workflow_has_the_steps_these_tests_run():
+    assert {TRIGGER, WAIT} <= set(steps(workflow()))
+
+
+@needs_bash
+def test_a_created_deploy_is_the_one_waited_for(tmp_path: Path):
+    done, output = run_step(tmp_path, TRIGGER, post='201\n{"id": "dep-new", "status": "created"}')
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert output.strip() == "deploy=dep-new"
+
+
+@needs_bash
+def test_a_queued_deploy_is_the_newest_created_since_the_trigger(tmp_path: Path):
+    """Render answers 202 with no body when the deploy waits behind another,
+    such as the one a push started a moment earlier."""
+    deploys = [{"deploy": {"id": "dep-old", "createdAt": created(-3600)}, "cursor": "a"},
+               {"deploy": {"id": "dep-push", "createdAt": created(-5)}, "cursor": "b"},
+               {"deploy": {"id": "dep-new", "createdAt": created(1)}, "cursor": "c"}]
+
+    done, output = run_step(tmp_path, TRIGGER, post="202\n", deploys=json.dumps(deploys))
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert output.strip() == "deploy=dep-new"
+
+
+@needs_bash
+def test_a_queued_deploy_that_cannot_be_found_fails_the_run(tmp_path: Path):
+    deploys = [{"deploy": {"id": "dep-old", "createdAt": created(-3600)}, "cursor": "a"}]
+
+    done, output = run_step(tmp_path, TRIGGER, post="202\n", deploys=json.dumps(deploys))
+
+    assert done.returncode == 1
+    assert "no deploy created since the trigger" in done.stdout
+    assert output == ""
+
+
+@needs_bash
+def test_a_refused_trigger_fails_the_run(tmp_path: Path):
+    done, output = run_step(tmp_path, TRIGGER, post='401\n{"message": "unauthorized"}')
+
+    assert done.returncode == 1
+    assert "HTTP 401" in done.stdout
+    assert output == ""
+
+
+@needs_bash
+def test_the_run_waits_until_that_deploy_is_live(tmp_path: Path):
+    done, _ = run_step(tmp_path, WAIT, deploy="dep-new",
+                       states="queued build_in_progress update_in_progress live")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert (tmp_path / "polls").read_text() == "4"
+    assert "/services/srv-test/deploys/dep-new" in (tmp_path / "calls").read_text()
+
+
+@needs_bash
+@pytest.mark.parametrize("state", ENDED)
+def test_a_deploy_that_ends_without_going_live_fails_the_run(tmp_path: Path, state: str):
+    done, _ = run_step(tmp_path, WAIT, deploy="dep-new", states=f"build_in_progress {state}")
+
+    assert done.returncode == 1
+    assert f"ended as {state}" in done.stdout
+
+
+@needs_bash
+def test_a_deploy_that_never_goes_live_fails_at_the_limit(tmp_path: Path):
+    done, _ = run_step(tmp_path, WAIT, deploy="dep-new", states="build_in_progress")
+
+    assert done.returncode == 1
+    assert (tmp_path / "polls").read_text() == str(POLLS)
+    assert "did not go live within 10 minutes" in done.stdout
 
 
 # --------------------------------------------------------------------------

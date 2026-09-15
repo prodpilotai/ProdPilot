@@ -85,7 +85,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from prodpilot import projectstate, push
+from prodpilot import monitor, projectstate, push
 from prodpilot.config import ConfigError, load_credentials
 
 logger = logging.getLogger(__name__)
@@ -102,6 +102,28 @@ SECRETS = (KEY, SERVICE, APP_URL)
 
 # The endpoint the workflow calls, module 6.5's own Trigger Deploy call.
 RENDER = "https://api.render.com/v1"
+
+# The workflow waits for its own deploy as stage 6 does, every 15 seconds for
+# at most 10 minutes, and treats as ended the deploy states stage 6 maps to
+# failed. Only render.py may import Render's module, so the states are written
+# here and a test holds them equal to render.STATES.
+EVERY = int(monitor.EVERY)
+POLLS = int(monitor.LIMIT // monitor.EVERY)
+MINUTES = int(monitor.LIMIT // 60)
+ENDED = ("build_failed", "canceled", "deactivated", "pre_deploy_failed", "update_failed")
+
+# Small programs the workflow runs on the runner's python3 to read Render's
+# JSON from standard input. NEWEST also takes the time of the trigger and
+# allows 30 seconds of clock difference between the runner and Render.
+READ_ID = 'import json, sys; print(json.load(sys.stdin).get("id") or "")'
+READ_STATUS = 'import json, sys; print(json.load(sys.stdin).get("status") or "")'
+NEWEST = (
+    "import json, sys; from datetime import datetime; "
+    'when = lambda d: datetime.fromisoformat(d["createdAt"].replace("Z", "+00:00")).timestamp(); '
+    'made = sorted((i["deploy"] for i in json.load(sys.stdin) '
+    'if when(i["deploy"]) >= int(sys.argv[1]) - 30), key=when); '
+    'print(made[-1]["id"] if made else "")'
+)
 
 HEALTH = "/health"
 
@@ -315,7 +337,16 @@ def workflow(branch: str = "main", path: str = HEALTH) -> str:
     Every value is read from repository secrets rather than written into the
     file, so nothing secret is ever committed. The check afterwards is what
     makes this a pipeline rather than a fire and forget trigger.
+
+    Before checking, it waits for the very deploy it started, polled as stage
+    6 polls, because after a fixed wait the check could pass against the
+    previous instance. Render answers the trigger with the new deploy, or with
+    202 and no body when the deploy is queued behind another, such as one a
+    push started; the deploy waited for is then the newest created since the
+    trigger, and none found fails the run rather than guessing.
     """
+    auth = '-H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json"'
+    ended = "|".join(ENDED)
     return f"""name: Deploy
 
 on:
@@ -326,16 +357,52 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{{{ secrets.{KEY} }}}}
+      SERVICE_ID: ${{{{ secrets.{SERVICE} }}}}
     steps:
       - name: Trigger the Render deploy
-        run: >-
-          curl --fail --silent --show-error -X POST
-          -H "Authorization: Bearer ${{{{ secrets.{KEY} }}}}"
-          -H "Accept: application/json"
-          "{RENDER}/services/${{{{ secrets.{SERVICE} }}}}/deploys"
+        id: trigger
+        run: |
+          since=$(date -u +%s)
+          code=$(curl --silent --show-error -o deploy.json -w "%{{http_code}}" -X POST {auth} "{RENDER}/services/$SERVICE_ID/deploys")
+          if [ "$code" = "201" ]; then
+            deploy=$(python3 -c '{READ_ID}' < deploy.json)
+          elif [ "$code" = "202" ]; then
+            curl --fail --silent --show-error {auth} "{RENDER}/services/$SERVICE_ID/deploys?limit=100" > deploys.json
+            deploy=$(python3 -c '{NEWEST}' "$since" < deploys.json)
+          else
+            echo "Render refused the deploy with HTTP $code"
+            cat deploy.json
+            exit 1
+          fi
+          if [ -z "$deploy" ]; then
+            echo "Render accepted the deploy, but no deploy created since the trigger was found"
+            exit 1
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for the new deploy to go live
-        run: sleep 90
+      - name: Wait for that deploy to go live
+        env:
+          DEPLOY_ID: ${{{{ steps.trigger.outputs.deploy }}}}
+        run: |
+          for attempt in $(seq 1 {POLLS}); do
+            status=$(curl --fail --silent --show-error {auth} "{RENDER}/services/$SERVICE_ID/deploys/$DEPLOY_ID" | python3 -c '{READ_STATUS}' || true)
+            case "$status" in
+              live)
+                echo "deploy $DEPLOY_ID is live"
+                exit 0
+                ;;
+              {ended})
+                echo "deploy $DEPLOY_ID ended as $status"
+                exit 1
+                ;;
+            esac
+            echo "deploy $DEPLOY_ID is ${{status:-not known yet}}, waiting"
+            sleep {EVERY}
+          done
+          echo "deploy $DEPLOY_ID did not go live within {MINUTES} minutes"
+          exit 1
 
       - name: Check the deployed service answers on {path}
         run: |
