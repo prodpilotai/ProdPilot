@@ -113,6 +113,9 @@ from prodpilot import features, labels
 logger = logging.getLogger(__name__)
 
 DATA = Path("data")
+# Where training writes the model. The gate reads the copy shipped inside the
+# package, scoring.ARTIFACT, so a retrained model is promoted by copying this
+# file to src/prodpilot/model/model.joblib.
 ARTIFACT = DATA / "model.joblib"
 
 # Held out for evaluation.

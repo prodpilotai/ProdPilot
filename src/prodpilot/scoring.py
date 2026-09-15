@@ -61,7 +61,6 @@ from pathlib import Path
 
 from prodpilot import features
 from prodpilot.audit import Report
-from prodpilot.training import ARTIFACT
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +106,12 @@ class Model:
                 "metrics": self.metrics}
 
 
+# The model the gate uses ships inside the package. An IDE starts the server in
+# the developer's own project, so a path relative to the working directory, as
+# training writes, would find nothing there and keep the gate shut for every
+# user. A developer who retrains copies training.ARTIFACT here.
+ARTIFACT = Path(__file__).resolve().parent / "model" / "model.joblib"
+
 # Held between calls. The gate asks once per cycle and the artifact does not
 # change while a run is in progress.
 _held: Model | None = None
@@ -119,8 +124,10 @@ def load(path: str | Path | None = None) -> Model:
     target = Path(path if path is not None else ARTIFACT)
     if not target.is_file():
         raise ScoreError(
-            f"no trained model at {target}. Run module 5.4 to train one. The "
-            f"gate will not fall back to the audit engine score.")
+            f"no trained model at {target}. ProdPilot ships its model, so "
+            f"reinstall it; after retraining with module 5.4, copy "
+            f"data/model.joblib here. The gate will not fall back to the audit "
+            f"engine score.")
 
     try:
         import joblib
