@@ -61,12 +61,15 @@ Registering it in VS Code is done through `.vscode/mcp.json` in this repository.
 | `prodpilot_fix_applied` | Takes the agent's report of an applied fix and answers from the rule's own checker, never from the report. |
 | `prodpilot_deploy` | Runs the whole ProdPush pipeline. It creates a real Render service and pushes to GitHub, so its description asks the agent to confirm with the developer first. |
 
-Commands: `prodpilot serve`, `prodpilot setup`, `prodpilot doctor`, `prodpilot devin`.
+Commands: `prodpilot serve`, `prodpilot setup`, `prodpilot doctor`, `prodpilot connect`.
 
-Devin, formerly Windsurf, blanks the `${workspaceFolder}` the committed configs
-use, so it cannot start the server from them. `prodpilot devin --project PATH`
-writes Devin's own `.devin/mcp_config.local.json` for that project with this
-machine's launcher, and warns if Git would commit it.
+`prodpilot connect vscode|cursor|devin` connects an IDE's agent to the
+installed ProdPilot, naming this machine's `prodpilot` command by its absolute
+path. VS Code is connected through its own `code --add-mcp`, into the user
+profile; Cursor through its global `~/.cursor/mcp.json`; Devin, formerly
+Windsurf, which blanks the `${workspaceFolder}` other configs use, through the
+project's own `.devin/mcp_config.local.json` (`--project PATH`), with a warning
+if Git would commit it. Any other server a file lists is kept.
 
 ## From audit to production
 
@@ -111,8 +114,12 @@ model that breaks it. On held out projects it scores a ROC AUC of 0.909, 0.852
 within React and 0.913 within Express. The full evaluation, and how the gate
 policy was decided from it, is in [docs/evaluation.md](docs/evaluation.md).
 
-The trained model is `data/model.joblib`, which is not committed. Without it the
-gate gives no estimate and stays shut; it never falls back to the audit score.
+The model the gate uses ships inside the package, at
+`src/prodpilot/model/model.joblib`, so an installed ProdPilot needs nothing
+else. Training writes `data/model.joblib`, which is not committed, and a
+retrained model is promoted by copying it over the shipped one. scikit-learn is
+pinned to the version that saved it. Without a model the gate gives no estimate
+and stays shut; it never falls back to the audit score.
 
 ## Layer 0: detection and blueprint
 
@@ -257,7 +264,7 @@ and the model in use, and `backup/` holds files that were replaced or retired.
 | `features.jsonl`, `features.names.json` | The 26 feature matrix, 675 rows, and its column names |
 | `features.excluded.jsonl` | The 10 rows left out of the matrix, 9 whose build could not be determined and 1 never labelled, and why |
 | `features.skipped.jsonl` | The repository the audit could not process |
-| `model.joblib` | The model the gate uses |
+| `model.joblib` | The model as trained, promoted by copying it to `src/prodpilot/model/` |
 | `evaluation.json` | That model's measurements, and the comparison it was chosen from |
 | `training.log` | The output of the training run that produced it |
 
