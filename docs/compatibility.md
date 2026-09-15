@@ -300,9 +300,10 @@ Windsurf file. So on this version, the committed configs do not work in Devin.
 Discovery passed through the agent's own highest precedence file,
 `.devin/mcp_config.local.json`, naming the absolute launch command. That file
 holds a path only valid on one machine, so it is listed in `.gitignore` and
-never committed. After Phase 7, `prodpilot devin --project PATH` writes this
-file for any project with the machine's own launcher, keeping any other server
-it lists, and reports whether Git ignores it. After reconnecting, the log shows
+never committed. After Phase 7, `prodpilot connect devin --project PATH`
+writes this file for any project with the machine's own launcher, keeping any
+other server it lists, and reports whether Git ignores it; `prodpilot connect`
+also connects VS Code and Cursor for an installed ProdPilot. After reconnecting, the log shows
 `Starting stdio MCP server 'prodpilot': "E:/ProdPilot/ProdPilot/.venv/Scripts/prodpilot.exe"`
 and `connected successfully`, and the panel listed all five tools. It lists them
 under "Write", because ProdPilot marks none of its tools as read only.

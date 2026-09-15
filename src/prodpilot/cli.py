@@ -16,7 +16,7 @@ import sys
 import typer
 
 from prodpilot import config as config_module
-from prodpilot import devin as devin_config
+from prodpilot import connect as clients
 from prodpilot import projectstate
 from prodpilot.config import (
     ConfigError,
@@ -241,35 +241,52 @@ def doctor(
     typer.secho("All checks passed.", fg=typer.colors.GREEN)
 
 
+AFTER = {
+    "vscode": "In VS Code, run MCP: List Servers and start prodpilot.",
+    "cursor": "In Cursor, open Settings, MCP, and switch prodpilot on.",
+    "devin": "Reconnect prodpilot in Devin's MCP panel, or restart Devin, so it reads the file.",
+}
+
+
 @app.command()
-def devin(
+def connect(
+    client: str = typer.Argument(..., help="The IDE to connect: vscode, cursor or devin."),
     project: str = typer.Option(
         ".",
         "--project",
-        help="The project folder you open in Devin. Defaults to the current directory.",
+        help="Devin only: the project folder you open in Devin. Defaults to the current directory.",
     ),
 ) -> None:
-    """Connect Devin, formerly Windsurf, to ProdPilot for one project.
+    """Connect an IDE's agent to ProdPilot, naming this machine's prodpilot command.
 
-    Writes .devin/mcp_config.local.json with this machine's prodpilot command,
-    because Devin blanks the ${workspaceFolder} the committed configurations use.
+    VS Code and Cursor are connected once for every project; Devin, which blanks
+    the ${workspaceFolder} other configurations use, once per project.
     """
+    if client not in clients.CLIENTS:
+        typer.secho(f"Unknown client {client}. Choose one of: {', '.join(clients.CLIENTS)}.",
+                    fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
     try:
-        done = devin_config.connect(project)
-    except devin_config.DevinError as exc:
+        if client == "vscode":
+            done = clients.vscode()
+        elif client == "cursor":
+            done = clients.cursor()
+        else:
+            done = clients.devin(project)
+    except clients.ConnectError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
-    typer.secho(f"Wrote {done.path}", fg=typer.colors.GREEN)
-    typer.echo(f"Devin will start: {done.command} serve")
+    typer.secho(f"Added prodpilot to {done.where}", fg=typer.colors.GREEN)
+    typer.echo(f"It starts: {done.command} serve")
     if done.ignored is False:
         typer.secho(
-            f"{devin_config.FILE.as_posix()} names a path valid on this machine only "
+            f"{clients.DEVIN_FILE.as_posix()} names a path valid on this machine only "
             "and Git does not ignore it. Add it to .gitignore.",
             fg=typer.colors.YELLOW,
             err=True,
         )
-    typer.echo("Reconnect prodpilot in Devin's MCP panel, or restart Devin, so it reads the file.")
+    typer.echo(AFTER[client])
 
 
 if __name__ == "__main__":
