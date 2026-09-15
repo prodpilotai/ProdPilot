@@ -168,3 +168,23 @@ and forbidden list, checked against each client's own record of the call. The
 agents were told not to apply it. So the first-pass verification rate Section 13
 asks for, a live agent's change passing the checker, has not been measured by
 any run in this project.
+
+## After Phase 7
+
+Content contracts now declare the environment keys their content reads, so
+SEC-003's fix no longer breaks ENV-001 and is no longer reverted. The whole
+chain was run again on the same 23 samples, recorded in
+[pipeline.md](pipeline.md). Everything above describes module 7.3's run and is
+left as measured; this is the same measure on the new run.
+
+| STATIC | Module 7.3's final run | After |
+| --- | --- | --- |
+| First attempt verified | 155 of 201 (77.1%) | 159 of 201 (79.1%) |
+| Passing at the end of the run | 187 of 201 (93.0%) | 191 of 201 (95.0%) |
+| Applied as written, verified | 155 of 177 (87.6%) | 159 of 177 (89.8%) |
+| Reverted by the regression guard | 4 | 0 |
+
+The 18 applied STATIC contracts that still do not verify are the 15 in
+`amb_two_entries` and the 3 API-003 contracts on `node_express_insecure`. The
+DYNAMIC-PARAMETRIC figures, the ambiguity rate of 15 of 74 and the
+DYNAMIC-DELEGATED figures are unchanged.

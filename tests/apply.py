@@ -32,6 +32,7 @@ import json
 import re
 from pathlib import Path
 
+from prodpilot.astchecks import declared_keys
 from prodpilot.dispatch import Claim, Fix, Form
 from prodpilot.templates import LINE, Action
 
@@ -167,6 +168,23 @@ def declare(root: Path, packages: dict[str, str]) -> list[str]:
     return added
 
 
+def declare_keys(root: Path, keys: list[str]) -> list[str]:
+    """Add each listed key an existing .env.example does not declare yet, as KEY=.
+
+    A missing .env.example is left missing: creating it is ENV-001's own fix,
+    which declares every key the code reads, these included.
+    """
+    path = root / ".env.example"
+    if not keys or not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8")
+    added = [key for key in keys if key not in declared_keys(text)]
+    if added:
+        lead = "" if not text or text.endswith("\n") else "\n"
+        path.write_text(text + lead + "".join(f"{key}=\n" for key in added), encoding="utf-8")
+    return added
+
+
 def write(root: Path, fix: Fix) -> str:
     """Carry out one content contract. Returns what was done, or why it was not."""
     body = fix.body
@@ -201,6 +219,9 @@ def write(root: Path, fix: Fix) -> str:
     added = declare(root, body.get("packages") or {})
     if added:
         done += f", and declared {', '.join(added)} in package.json"
+    keys = declare_keys(root, list(body.get("env") or []))
+    if keys:
+        done += f", and declared {', '.join(keys)} in .env.example"
     return done
 
 

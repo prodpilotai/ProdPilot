@@ -518,3 +518,39 @@ Gate: no package.json found at the project root
 ### `vite_without_react`
 
 Gate: vite is present but react is not. Only React with Vite is supported in v1
+
+## After Phase 7: content fixes declare the keys they read
+
+The first failure path recorded above, a CORS fix that breaks the environment
+template, was then closed. A content contract now lists the environment keys
+its content reads, beside its packages, and the constraint asks for any key an
+existing `.env.example` does not declare to be added to it as `KEY=`. SEC-003
+names `CORS_ORIGIN` and ENV-002 names `PORT`. The whole chain was run again on
+the same 23 samples on 15 September 2026, with the three other changes made
+after Phase 7 in place: the CI workflow waiting for its own deploy, the tool
+hints, and the Devin command.
+
+| Measure | Module 7.3's final run | This run |
+| --- | --- | --- |
+| Fixes reverted by the regression guard | 4, all SEC-003 | 0 |
+| Cleared the scoring gate | 8 | 11 |
+| Completed all nine stages | 6 | 7 |
+| Unhandled failures | 0 | 0 |
+
+`amb_two_drivers`, `amb_two_roots` and `node_express_ready` now clear the gate,
+at 96, 98 and 98, and `amb_two_drivers` completes all nine stages. The other two
+stop at stage 3, each for a cause in its committed sample:
+
+- `amb_two_roots` requires `./routes/orders` and `./routes/billing`, which the
+  sample does not contain. Stage 3 says so: the container exited on start with
+  `Error: Cannot find module './routes/orders'`.
+- `node_express_ready` commits its own Dockerfile, which runs `npm ci` with no
+  `package-lock.json`, and npm refuses; a local build of the run's copy shows
+  `RUN npm ci` exiting with code 1 and npm printing its usage.
+
+`amb_unnamed_secret` rose from 83 to 91 and is still refused on SCR-002, a
+refusal by design. Two gaps are recorded, not changed. No audit rule checks a
+project's own Dockerfile for `npm ci` without a lockfile, the fault module 7.3
+corrected in ProdPilot's generated Dockerfiles. And stage 3's record of that
+failure says only "build failed, missing dependency", without the line npm
+printed.

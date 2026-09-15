@@ -70,6 +70,11 @@ the service crashes on its first require. Each such template lists the packages
 it needs with a version range, the instruction carries them, and the constraint
 asks for any that package.json does not already declare to be added to its
 dependencies. A range already declared is left alone.
+
+Content that reads an environment key lists that key the same way, and an
+existing .env.example that does not declare it gains it as KEY=. Without that
+the fix makes ENV-001 fail and the regression guard reverts it, which the full
+chain run of module 7.3 saw SEC-003 do on four projects.
 """
 
 from __future__ import annotations
@@ -88,7 +93,9 @@ logger = logging.getLogger(__name__)
 CONSTRAINT = (
     "Apply exactly this change. If the content is already in place, leave the "
     "file as it is. Add any listed package that package.json does not already "
-    "declare to its dependencies. Make no other modifications."
+    "declare to its dependencies, and any listed environment key that an "
+    "existing .env.example does not declare to that file as KEY=. Make no "
+    "other modifications."
 )
 
 # The one locator a project dependent contract adds, for a fix that rewrites a
@@ -135,6 +142,7 @@ class Template:
     rationale: str
     path: str | None = None
     packages: tuple[tuple[str, str], ...] = ()
+    env: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.action is Action.CREATE_FILE and not self.path:
@@ -155,6 +163,7 @@ class Instruction:
     rationale: str
     constraint: str = CONSTRAINT
     packages: tuple[tuple[str, str], ...] = ()
+    env: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -166,6 +175,7 @@ class Instruction:
             "rationale": self.rationale,
             "constraint": self.constraint,
             "packages": dict(self.packages),
+            "env": list(self.env),
         }
 
 
@@ -334,8 +344,9 @@ def tpl(
     rationale: str,
     path: str | None = None,
     packages: tuple[tuple[str, str], ...] = (),
+    env: tuple[str, ...] = (),
 ) -> Template:
-    return Template(template_id, action, anchor, content, rationale, path, packages)
+    return Template(template_id, action, anchor, content, rationale, path, packages, env)
 
 
 # --------------------------------------------------------------------------
@@ -393,6 +404,7 @@ TEMPLATES: dict[str, Template] = {
         "It replaces the existing registration, since a second one would leave the "
         "first still answering with the old origin.",
         packages=(CORS_PKG,),
+        env=("CORS_ORIGIN",),
     ),
     "SEC-004": tpl(
         "tpl.node.csp_headers", Action.INSERT_AFTER, "express:before-routes",
@@ -405,6 +417,7 @@ TEMPLATES: dict[str, Template] = {
         "const server = app.listen(process.env.PORT || 3000);\n",
         "Reads the listening port from the environment, which is how the platform assigns "
         "it, and keeps the server so a shutdown handler can drain it.",
+        env=("PORT",),
     ),
     "API-001": tpl(
         "tpl.node.rate_limiting", Action.INSERT_AFTER, "express:before-routes",
@@ -583,6 +596,7 @@ def render(issue: RuleResult) -> Instruction:
         content=template.content,
         rationale=template.rationale,
         packages=template.packages,
+        env=template.env,
     )
 
 

@@ -177,7 +177,7 @@ def test_render_produces_every_contract_field(rule_id: str):
 
     assert set(payload) == {
         "rule_id", "action", "file_path", "anchor", "content", "rationale", "constraint",
-        "packages",
+        "packages", "env",
     }
     assert payload["rule_id"] == rule_id
     assert payload["action"] in {a.value for a in Action}
@@ -192,6 +192,7 @@ def test_the_constraint_keeps_the_wording_from_the_document():
     assert CONSTRAINT.endswith("Make no other modifications.")
     assert "already in place" in CONSTRAINT
     assert "package.json" in CONSTRAINT
+    assert ".env.example" in CONSTRAINT
 
 
 @pytest.mark.parametrize("rule_id", ["SEC-002", "SEC-003", "SEC-004", "API-001",
@@ -210,6 +211,19 @@ def test_content_that_requires_nothing_declares_nothing():
     for rule_id, template in TEMPLATES.items():
         if "require(" not in template.content:
             assert template.packages == (), rule_id
+
+
+def test_content_that_reads_the_environment_declares_the_key():
+    """A key the code reads and .env.example lacks makes ENV-001 fail, and the
+    regression guard then reverts the fix, which the full chain run saw SEC-003
+    do on four projects."""
+    for rule_id, template in TEMPLATES.items():
+        read = set(re.findall(r"process\.env\.([A-Z][A-Z0-9_]*)", template.content))
+        assert read == set(template.env), rule_id
+
+
+def test_the_cors_fix_declares_its_origin_key():
+    assert render(issue("SEC-003")).to_dict()["env"] == ["CORS_ORIGIN"]
 
 
 def test_the_helmet_and_cors_bindings_cannot_collide():

@@ -266,7 +266,7 @@ def test_render_produces_every_contract_field():
 
     assert set(payload) == {
         "rule_id", "action", "file_path", "anchor", "content", "rationale", "constraint",
-        "packages",
+        "packages", "env",
     }
     assert payload["rule_id"] == "BLD-001"
     assert payload["constraint"] == CONSTRAINT
