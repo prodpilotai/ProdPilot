@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from prodpilot import config as config_module
-from prodpilot import projectstate
+from prodpilot import prereqs, projectstate
 from prodpilot.config import (
     Credentials,
     PermissionState,
@@ -271,12 +271,27 @@ def test_setup_refuses_an_empty_credential(tmp_path: Path):
 
 
 def test_doctor_passes_after_setup(tmp_path: Path):
+    """Setup's credentials satisfy doctor.
+
+    Doctor also checks the tools a run needs, git, Node.js and a Docker daemon,
+    so on a machine without one, such as a macOS CI runner with no Docker, it
+    must fail naming exactly that tool and nothing about the credentials. The
+    test asks this machine the same question doctor asks.
+    """
     run_cli(["setup"], tmp_path, stdin=f"{TEST_GITHUB_TOKEN}\n{TEST_RENDER_KEY}\n")
 
     result = run_cli(["doctor"], tmp_path)
+    missing = [need.name for need in prereqs.check() if not need.ok]
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "All checks passed" in result.stdout
+    assert "github_token: stored" in result.stdout
+    assert "render_api_key: stored" in result.stdout
+    if not missing:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "All checks passed" in result.stdout
+    else:
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert result.stderr.strip() == (
+            f"{len(missing)} problem(s): " + "; ".join(f"{name} missing" for name in missing))
 
 
 def test_doctor_never_prints_stored_secret_values(tmp_path: Path):
