@@ -126,19 +126,40 @@ def test_cursor_keeps_the_servers_already_listed(tmp_path: Path):
 # --------------------------------------------------------------------------
 
 
+def writes_like_vscode(user: Path, seen: list | None = None):
+    """A stand-in for VS Code's CLI that records the call and writes as VS Code does."""
+    def run(args, **_):
+        if seen is not None:
+            seen.append(args)
+        entry = json.loads(args[args.index("--add-mcp") + 1])
+        name = entry.pop("name")
+        user.mkdir(parents=True, exist_ok=True)
+        (user / "mcp.json").write_text(json.dumps({"servers": {name: entry}}), encoding="utf-8")
+        return subprocess.CompletedProcess(args, 0, "Added MCP servers: prodpilot", "")
+    return run
+
+
 def test_vscode_is_asked_through_its_own_add_mcp(tmp_path: Path):
     seen: list[list[str]] = []
+    user = tmp_path / "User"
 
-    def run(args, **_):
-        seen.append(args)
-        return subprocess.CompletedProcess(args, 0, "", "")
-
-    done = connect.vscode(command=exe(tmp_path), code="code", run=run)
+    done = connect.vscode(command=exe(tmp_path), code="code", user=user,
+                          run=writes_like_vscode(user, seen))
 
     assert seen[0][:2] == ["code", "--add-mcp"]
     assert json.loads(seen[0][2]) == {"name": "prodpilot", "type": "stdio",
                                       "command": exe(tmp_path).as_posix(), "args": ["serve"]}
-    assert done.where == "the VS Code user profile"
+    assert done.where == str(user / "mcp.json")
+
+
+def test_a_code_command_that_writes_nothing_is_not_counted(tmp_path: Path):
+    """On this machine the first code on PATH was Cursor's: it exited 0 and
+    wrote nothing, and the command reported success."""
+    def run(args, **_):
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    with pytest.raises(connect.ConnectError, match="may not be VS Code's own command"):
+        connect.vscode(command=exe(tmp_path), code="code", user=tmp_path / "User", run=run)
 
 
 def test_vscode_failing_says_so(tmp_path: Path):
@@ -146,15 +167,52 @@ def test_vscode_failing_says_so(tmp_path: Path):
         return subprocess.CompletedProcess(args, 1, "", "bad option")
 
     with pytest.raises(connect.ConnectError, match="bad option"):
-        connect.vscode(command=exe(tmp_path), code="code", run=run)
+        connect.vscode(command=exe(tmp_path), code="code", user=tmp_path / "User", run=run)
 
 
-def test_without_the_code_command_the_entry_to_add_is_given(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(connect.shutil, "which", lambda name: None)
+def test_vscode_own_install_is_preferred_over_code_on_path(tmp_path: Path, monkeypatch):
+    own = tmp_path / "Microsoft VS Code" / "bin" / "code.cmd"
+    own.parent.mkdir(parents=True)
+    own.write_text("", encoding="utf-8")
+    monkeypatch.setattr(connect, "vscode_places", lambda: [own])
+
+    found = connect.vscode_cli(which=lambda name: "C:/Programs/cursor/codeBin/code.cmd")
+
+    assert found == str(own)
+
+
+def test_another_editors_code_command_is_never_used(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(connect, "vscode_places", lambda: [])
+
+    for shim in ("C:/Users/me/AppData/Local/Programs/cursor/resources/app/codeBin/code.cmd",
+                 "/opt/Windsurf/bin/code", "C:/Programs/Devin/bin/code.cmd"):
+        assert connect.vscode_cli(which=lambda name, shim=shim: shim) is None
+    assert connect.vscode_cli(which=lambda name: "/usr/bin/code") == "/usr/bin/code"
+
+
+def test_without_vscode_the_entry_to_add_is_given(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(connect, "vscode_cli", lambda which=None: None)
 
     with pytest.raises(connect.ConnectError, match="MCP: Open User Configuration") as raised:
         connect.vscode(command=exe(tmp_path))
     assert exe(tmp_path).as_posix() in str(raised.value)
+
+
+@pytest.mark.skipif(connect.vscode_cli() is None, reason="VS Code is not installed here")
+def test_the_real_vscode_cli_adds_prodpilot_to_a_throwaway_profile(tmp_path: Path):
+    """Through VS Code's own CLI, pointed at a profile made for this test, so
+    the developer's own VS Code settings are never touched."""
+    profile = tmp_path / "profile"
+
+    def run(args, **kw):
+        return subprocess.run([args[0], "--user-data-dir", str(profile), *args[1:]],
+                              timeout=120, **kw)
+
+    done = connect.vscode(command=exe(tmp_path), user=profile / "User", run=run)
+
+    servers = json.loads((profile / "User" / "mcp.json").read_text(encoding="utf-8"))["servers"]
+    assert servers["prodpilot"]["command"] == exe(tmp_path).as_posix()
+    assert done.where == str(profile / "User" / "mcp.json")
 
 
 # --------------------------------------------------------------------------
