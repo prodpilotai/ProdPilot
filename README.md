@@ -40,6 +40,24 @@ live agent is stated there as not yet measured, with why.
 Numbers quoted in some earlier commit messages describe a model that has since
 been corrected and replaced. See [docs/corrections.md](docs/corrections.md).
 
+## Install
+
+For people using ProdPilot rather than developing it:
+
+```bash
+pipx install prodpilot        # or: uv tool install prodpilot
+prodpilot setup               # stores your GitHub token and Render API key
+prodpilot doctor              # checks git, Node.js, Docker and the credentials
+prodpilot connect vscode      # or: cursor, or: devin --project PATH
+```
+
+ProdPilot needs Python 3.11 to 3.14, Node.js 20 or later, a running Docker
+daemon and git. The full walkthrough, what leaves your machine, the limits and
+troubleshooting are in [docs/quickstart.md](docs/quickstart.md). Until the first
+release is on PyPI, install from a clone with `pip install .`. Security reports
+go through [SECURITY.md](SECURITY.md); ProdPilot is MIT licensed, see
+[LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Running the server
 
 ProdPilot speaks the Model Context Protocol over stdio. An MCP client starts it

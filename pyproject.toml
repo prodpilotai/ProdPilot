@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prodpilot"
-version = "0.1.0"
+version = "1.0.0rc1"
 description = "A layered MCP-based system for automated production readiness and deployment of vibe-coded projects."
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.15"
 license = { text = "MIT" }
 authors = [
     { name = "Muhammad Sudais Khalid", email = "msudaiskhalid.ai@gmail.com" },
