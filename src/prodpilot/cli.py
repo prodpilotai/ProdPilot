@@ -17,6 +17,7 @@ import typer
 
 from prodpilot import config as config_module
 from prodpilot import connect as clients
+from prodpilot import prereqs
 from prodpilot import projectstate
 from prodpilot.config import (
     ConfigError,
@@ -229,6 +230,14 @@ def doctor(
                 typer.secho(f"  {marker}: {status.detail}", fg=typer.colors.RED)
                 problems.append(f"{marker} is not gitignored")
             typer.echo(f"  stored state keys: {len(state)}")
+
+    typer.echo("")
+    typer.echo("Tools ProdPilot runs:")
+    for need in prereqs.check():
+        typer.secho(f"  {need.name}: {need.detail}",
+                    fg=typer.colors.GREEN if need.ok else typer.colors.RED)
+        if not need.ok:
+            problems.append(f"{need.name} missing")
 
     typer.echo("")
     if problems:
