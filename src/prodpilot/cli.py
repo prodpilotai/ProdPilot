@@ -16,6 +16,7 @@ import sys
 import typer
 
 from prodpilot import config as config_module
+from prodpilot import devin as devin_config
 from prodpilot import projectstate
 from prodpilot.config import (
     ConfigError,
@@ -238,6 +239,37 @@ def doctor(
         )
         raise typer.Exit(code=1)
     typer.secho("All checks passed.", fg=typer.colors.GREEN)
+
+
+@app.command()
+def devin(
+    project: str = typer.Option(
+        ".",
+        "--project",
+        help="The project folder you open in Devin. Defaults to the current directory.",
+    ),
+) -> None:
+    """Connect Devin, formerly Windsurf, to ProdPilot for one project.
+
+    Writes .devin/mcp_config.local.json with this machine's prodpilot command,
+    because Devin blanks the ${workspaceFolder} the committed configurations use.
+    """
+    try:
+        done = devin_config.connect(project)
+    except devin_config.DevinError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"Wrote {done.path}", fg=typer.colors.GREEN)
+    typer.echo(f"Devin will start: {done.command} serve")
+    if done.ignored is False:
+        typer.secho(
+            f"{devin_config.FILE.as_posix()} names a path valid on this machine only "
+            "and Git does not ignore it. Add it to .gitignore.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+    typer.echo("Reconnect prodpilot in Devin's MCP panel, or restart Devin, so it reads the file.")
 
 
 if __name__ == "__main__":

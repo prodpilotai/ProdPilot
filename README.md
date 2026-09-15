@@ -61,7 +61,12 @@ Registering it in VS Code is done through `.vscode/mcp.json` in this repository.
 | `prodpilot_fix_applied` | Takes the agent's report of an applied fix and answers from the rule's own checker, never from the report. |
 | `prodpilot_deploy` | Runs the whole ProdPush pipeline. It creates a real Render service and pushes to GitHub, so its description asks the agent to confirm with the developer first. |
 
-Commands: `prodpilot serve`, `prodpilot setup`, `prodpilot doctor`.
+Commands: `prodpilot serve`, `prodpilot setup`, `prodpilot doctor`, `prodpilot devin`.
+
+Devin, formerly Windsurf, blanks the `${workspaceFolder}` the committed configs
+use, so it cannot start the server from them. `prodpilot devin --project PATH`
+writes Devin's own `.devin/mcp_config.local.json` for that project with this
+machine's launcher, and warns if Git would commit it.
 
 ## From audit to production
 
