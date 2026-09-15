@@ -184,9 +184,14 @@ class Build:
             # stops on it can say, for example that the container exited on start.
             why = f": {self.health.detail}" if self.health and self.health.detail else ""
             return f"{self.project}: image built, container not healthy{why}"
+        # The first line of the build output that explains the failure travels
+        # with the summary, so the stage that stops on it says, for example, that
+        # npm ci refused to run without a lockfile.
+        cause = first_error(self.log)
+        why = f": {cause}" if cause else ""
         if self.fault:
-            return f"{self.project}: build failed, {self.fault.value}"
-        return f"{self.project}: build failed, unclassified, needs manual review"
+            return f"{self.project}: build failed, {self.fault.value}{why}"
+        return f"{self.project}: build failed, unclassified, needs manual review{why}"
 
 
 def lines_of(log) -> list[str]:
@@ -205,7 +210,13 @@ def lines_of(log) -> list[str]:
             else:
                 text = str(item)
             raw.extend(str(text).splitlines())
+    # npm and other tools colour their output even inside a build, and the
+    # escape codes would stand in front of the text a person or a pattern reads.
+    raw = [ANSI.sub("", line) for line in raw]
     return [line.strip() for line in raw if line and line.strip()]
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def classify(text) -> tuple[Fault | None, str]:
@@ -316,6 +327,24 @@ def telling(lines: list[str]) -> str:
     return (errors[-1] if errors else kept[-1])[:200]
 
 
+# A line that only names a tool's error prefix or its error code says nothing
+# about the cause, such as "npm error" or "npm error code EUSAGE".
+BARE = re.compile(r"^(npm (error|ERR!)|error)(\s+code\s+\S+)?\s*:?\s*$", re.IGNORECASE)
+
+
+def first_error(log: str) -> str:
+    """The first line of a failed build's output that says what went wrong.
+
+    Unlike a crashed container, whose last error line is the cause, a failed
+    build states its cause first and then prints usage and log locations.
+    """
+    for line in (log or "").splitlines():
+        line = line.strip()
+        if line and TELLING.search(line) and not BARE.match(line):
+            return line[:200]
+    return ""
+
+
 def client():
     """Connect to Docker, or say plainly that it is not available."""
     try:
@@ -390,11 +419,15 @@ def run(root: str | Path, env: Mapping[str, str] | None = None,
     try:
         image, log = docker.images.build(path=str(base), tag=tag, rm=True, pull=False)
     except BuildError as exc:
-        fault, line = classify(exc.build_log)
+        # The SDK hands the log over as a generator, which can be read once. It
+        # used to be read by classify and then again, empty, for the log kept
+        # for a person, so a real failure kept no output at all.
+        built = "\n".join(lines_of(exc.build_log))
+        fault, line = classify(built)
         if fault is None:
             fault, line = classify(str(exc.msg))
         result = Build(name, False, fault=fault, detail=line or said(exc.msg),
-                       log=tail(exc.build_log))
+                       log=tail(built))
         logger.warning("%s", result.summary())
         return result
     except (APIError, DockerException) as exc:

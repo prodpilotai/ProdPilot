@@ -336,6 +336,22 @@ def test_a_missing_dependency_is_classified(tmp_path: Path):
 
 
 @needs_docker
+def test_a_real_failed_build_names_its_cause(tmp_path: Path):
+    """The Docker SDK hands the log over as a generator. It used to be read
+    twice, so a real failure kept no output and its summary said only "missing
+    dependency"; the full-chain rerun met exactly this in node_express_ready."""
+    result = run(project(
+        tmp_path, "FROM node:20-alpine\nWORKDIR /app\nCOPY package.json ./\nRUN npm ci\n",
+        {"package.json": '{"name": "demo", "version": "1.0.0"}'}))
+
+    assert result.ok is False
+    assert result.fault is Fault.DEPENDENCY
+    assert result.log, "the build output was kept"
+    assert "package-lock.json" in result.summary()
+    assert "\x1b[" not in result.log
+
+
+@needs_docker
 def test_a_failing_build_script_is_classified(tmp_path: Path):
     result = run(project(
         tmp_path,
@@ -517,6 +533,45 @@ def test_a_container_that_stops_on_start_says_so(tmp_path: Path):
     assert "exited on start with code 3" in result.health.detail
     assert "cannot start" in result.health.detail
     assert result.fault is None, "a crash is for a person, not a taxonomy entry"
+
+
+NPM_CI_WITHOUT_LOCKFILE = """\
+Step 4/9 : RUN npm ci
+npm error code EUSAGE
+npm error
+npm error The `npm ci` command can only install with an existing package-lock.json or
+npm error npm-shrinkwrap.json with lockfileVersion >= 1. Run an install with npm@5 or
+npm error later to generate a package-lock.json file, then try again.
+npm error
+npm error Clean install a project
+npm error Usage:
+npm error npm ci
+npm error A complete log of this run can be found in: /root/.npm/_logs/debug-0.log
+"""
+
+
+def test_colour_codes_are_removed_from_the_build_output():
+    """A real build's npm lines start with an escape code, which hid the cause
+    from the summary on the first real run of this change."""
+    assert lines_of("\x1b[91mnpm error code EUSAGE\x1b[0m\n\x1b[91mnpm error The `npm ci` command") \
+        == ["npm error code EUSAGE", "npm error The `npm ci` command"]
+
+
+def test_a_failed_build_says_why_in_its_summary():
+    """The full-chain rerun stopped node_express_ready saying only "missing
+    dependency"; npm's own first line says the lockfile is missing."""
+    failed = Build("demo", False, fault=Fault.DEPENDENCY, log=NPM_CI_WITHOUT_LOCKFILE)
+
+    assert failed.summary() == (
+        "demo: build failed, missing dependency: npm error The `npm ci` command can only "
+        "install with an existing package-lock.json or")
+
+
+def test_a_failed_build_with_no_output_keeps_the_short_summary():
+    assert Build("demo", False, fault=Fault.DEPENDENCY).summary() == \
+        "demo: build failed, missing dependency"
+    assert Build("demo", False, log="Step 1/2 : FROM node:20").summary() == \
+        "demo: build failed, unclassified, needs manual review"
 
 
 def test_an_unhealthy_container_says_why_in_its_summary():
