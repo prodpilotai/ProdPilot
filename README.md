@@ -1,309 +1,265 @@
 # ProdPilot
 
-An AI-Powered Production Readiness and Automated Deployment System for Vibe-Coded Projects
+**Takes a web app you built with an AI coding assistant from "it works on my machine" to a live, verified deployment, without leaving your IDE.**
 
-ProdPilot is a local MCP server that gives an IDE's existing coding agent a set of
-deployment-focused tools. It runs no model of its own and calls no external AI API.
+[![Tests](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml/badge.svg)](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml)
+[![Python 3.11 to 3.14](https://img.shields.io/badge/python-3.11%20to%203.14-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Status: beta](https://img.shields.io/badge/status-beta%201.0.0rc1-orange)](CHANGELOG.md)
 
-Final Year Project, BSAI-FYP-2026, Department of Artificial Intelligence,
-Shifa Tameer-e-Millat University.
+AI coding assistants make it quick to build a Node.js API or a React app that
+runs on your laptop. Getting it to run in production is where it breaks:
+credentials hardcoded in the source, no security headers, no container setup,
+no health check, and a deploy that fails with an error you have never seen.
 
-## Current state
+ProdPilot finds those gaps, has your IDE's own coding agent fix them one at a
+time, checks every fix itself, and deploys the project to Render with a CI/CD
+pipeline once it is ready. It works as a Model Context Protocol (MCP) server: a
+small program on your machine that the agent in VS Code with GitHub Copilot,
+Cursor or Devin can call as a set of tools. ProdPilot calls no AI service
+itself.
 
-Phases 1 to 7 are complete. A Node.js with Express or React with Vite project
-can be audited, fixed through the IDE agent, gated, and deployed to Render with
-an active CI/CD pipeline.
+It is for developers building **Node.js with Express** APIs or **React with
+Vite** apps who want them deployed properly, not just deployed.
 
-| Phase | What it built |
-| --- | --- |
-| 1 | The MCP server, Layer 0 stack detection and production blueprints, local config and secrets |
-| 2 | The audit engine: 50 rules, 28 for Node Express and 22 for React Vite, across nine domains, scored 0 to 100 |
-| 3 | The bounded fix loop: fix contracts for every rule, an independent verifier, and a guard against one fix breaking another |
-| 4 | The scoring gate, looping the fix cycle until the project is ready or the ceiling is reached |
-| 5 | The deployability model, trained on 684 real Render deployments |
-| 6 | ProdPush, the nine stage pipeline from the gate to a live, smoke tested service |
-| 7 | IDE compatibility across VS Code, Cursor and Windsurf, the whole chain run on every sample, and the success metrics |
+## Features
 
-Phase 1 closed with one stated gap. Invocation from Copilot agent mode is
-untested, blocked by an exhausted account quota rather than by anything in the
-project, and the two Section 8 week-one questions move to Phase 7. See
-[docs/phase1-verification.md](docs/phase1-verification.md) for the full record.
+- **A production audit of 50 rules** across security, secrets, environment,
+  build, connectivity, API, structure, observability and git hygiene, scored
+  from 0 to 100.
+- **Fixes your agent applies and ProdPilot verifies.** The agent reports a
+  fix; ProdPilot re-runs that rule's own check on your files and decides. A fix
+  that breaks something that already worked is undone.
+- **Predictable changes.** 44 of the 50 rules come with an exact change for the
+  agent to apply; only 6 ask it to write code, inside limits ProdPilot sets.
+- **A gate that asks whether it will really deploy.** A score of at least 90,
+  no critical failures, and an estimate from a model trained on 684 real Render
+  deployments.
+- **Deployment in one call.** Nine stages, from a local Docker build to a live,
+  smoke tested Render service with a GitHub Actions pipeline. It stops at the
+  first stage that fails and tells you why.
+- **Your credentials stay yours.** They live in a file only your account can
+  read, never in the project, and repository secrets are encrypted before they
+  leave your machine.
+- **Works in the IDE you already use.** One command connects VS Code, Cursor or
+  Devin, formerly Windsurf.
 
-Phase 7 records each IDE's results, including failures, in
-[docs/compatibility.md](docs/compatibility.md); the whole chain, from the audit
-to the ninth ProdPush stage, run on every sample project, and the defects that
-run found and fixed, in [docs/pipeline.md](docs/pipeline.md); and the
-determinism ratio and fix reliability by type, measured from that run, in
-[docs/metrics.md](docs/metrics.md). The DYNAMIC-DELEGATED success rate for a
-live agent is stated there as not yet measured, with why.
+## Quick start
 
-Numbers quoted in some earlier commit messages describe a model that has since
-been corrected and replaced. See [docs/corrections.md](docs/corrections.md).
-
-## Install
-
-For people using ProdPilot rather than developing it:
-
-```bash
-pipx install prodpilot        # or: uv tool install prodpilot
-prodpilot setup               # stores your GitHub token and Render API key
-prodpilot doctor              # checks git, Node.js, Docker and the credentials
-prodpilot connect vscode      # or: cursor, or: devin --project PATH
-```
-
-ProdPilot needs Python 3.11 to 3.14, Node.js 20 or later, a running Docker
-daemon and git. The full walkthrough, what leaves your machine, the limits and
-troubleshooting are in [docs/quickstart.md](docs/quickstart.md). Until the first
-release is on PyPI, install from a clone with `pip install .`. Security reports
-go through [SECURITY.md](SECURITY.md); ProdPilot is MIT licensed, see
-[LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## Running the server
-
-ProdPilot speaks the Model Context Protocol over stdio. An MCP client starts it
-as a subprocess.
+You need Python 3.11 to 3.14, Node.js 20 or later, Docker running, git, a
+GitHub token and a Render API key.
 
 ```bash
-prodpilot serve
+pipx install prodpilot          # 1. install
+prodpilot setup                 # 2. store your GitHub token and Render API key
+prodpilot connect vscode        # 3. connect your IDE: vscode, cursor, or devin --project PATH
 ```
 
-Registering it in VS Code is done through `.vscode/mcp.json` in this repository.
+1.0.0rc1 is not on PyPI yet. Until it is, install from a clone of this
+repository with `pip install .` in place of step 1.
 
-## Tools
-
-| Tool | Purpose |
-| --- | --- |
-| `prodpilot_ping` | Connectivity check. Returns a fixed payload, reads no files. |
-| `prodpilot_detect_stack` | Identifies a project's stack and returns the matching production blueprint. |
-| `prodpilot_fix_instruction` | Returns the fix contract for one failing rule. |
-| `prodpilot_fix_applied` | Takes the agent's report of an applied fix and answers from the rule's own checker, never from the report. |
-| `prodpilot_deploy` | Runs the whole ProdPush pipeline. It creates a real Render service and pushes to GitHub, so its description asks the agent to confirm with the developer first. |
-
-Commands: `prodpilot serve`, `prodpilot setup`, `prodpilot doctor`, `prodpilot connect`.
-
-`prodpilot connect vscode|cursor|devin` connects an IDE's agent to the
-installed ProdPilot, naming this machine's `prodpilot` command by its absolute
-path. VS Code is connected through its own `code --add-mcp`, into the user
-profile; Cursor through its global `~/.cursor/mcp.json`; Devin, formerly
-Windsurf, which blanks the `${workspaceFolder}` other configs use, through the
-project's own `.devin/mcp_config.local.json` (`--project PATH`), with a warning
-if Git would commit it. Any other server a file lists is kept.
-
-## From audit to production
-
-**Audit.** Every rule belongs to one of nine domains (security, secrets,
-environment, build, connectivity, api, structure, observability, git hygiene)
-and one priority from P0, critical, to P5. The score maps to a band: 0 to 39 Not
-Ready, 40 to 69 Needs Work, 70 to 89 Nearly Ready, 90 to 100 Production Ready.
-
-**Fix loop.** Each rule has a fix type. 28 are static, a fixed change; 16 are
-parametric, a change built from values read out of the project; 6 are
-delegated, where ProdPilot supplies a boundary and the agent writes the change.
-A fix counts only when the rule's own checker passes again on the files on
-disk. Each rule gets three attempts, and a fix that breaks a rule which passed
-before it is reverted and sent to manual review.
-
-**Gate.** The project may deploy only when no critical rule fails, the audit
-score is at least 90, and the model's estimate that it will really deploy is at
-or above the model's operating point. The fix loop runs again while the gate
-stays shut, up to five cycles.
-
-**ProdPush.** The gate, pre-flight checks, environment sealing, a local Docker
-build test, a push of the generated files, the Render deployment, deploy
-monitoring, a post-deploy smoke test, and CI/CD wiring through GitHub Actions.
-It stops at the first stage that fails and says which one and why.
-
-## The deployability model
-
-The model estimates whether a project will really deploy on Render and serve
-its health path. It learned from 684 projects deployed to Render for real, 129
-of which did.
-
-Its 26 features are 25 counts derived from the audit, and whether the project
-builds. The build result comes from `prodpilot.builds`, which runs Render's own
-build command in a Linux container, from a read only copy of the project, with
-the Node version Render would choose. The gate runs the same check on the
-project it is judging whenever it needs the model's estimate.
-
-The estimator is a HistGradientBoostingClassifier with sigmoid calibration and a
-monotonic constraint: clearing a failing rule, or a build starting to succeed,
-can never lower the estimate. Training checks this on every row and refuses a
-model that breaks it. On held out projects it scores a ROC AUC of 0.909, 0.852
-within React and 0.913 within Express. The full evaluation, and how the gate
-policy was decided from it, is in [docs/evaluation.md](docs/evaluation.md).
-
-The model the gate uses ships inside the package, at
-`src/prodpilot/model/model.joblib`, so an installed ProdPilot needs nothing
-else. Training writes `data/model.joblib`, which is not committed, and a
-retrained model is promoted by copying it over the shipped one. scikit-learn is
-pinned to the version that saved it. Without a model the gate gives no estimate
-and stays shut; it never falls back to the audit score.
-
-## Layer 0: detection and blueprint
-
-Layer 0 answers two questions about a target project: what stack is this, and
-what would a deployment-ready version of it have to contain.
-
-### Stack detection
-
-Detection reads the project's file structure and `package.json`. It is fully
-deterministic, involves no model, and makes no network call.
-
-| Stack | Matched when |
-| --- | --- |
-| `node_express` | `express` is a declared dependency |
-| `react_vite` | `react` and `react-dom` are declared, and Vite is present |
-| `unrecognized` | anything else |
-
-Vite counts as present if the `vite` package is declared or a `vite.config`
-file exists at the project root, in any of the `.js`, `.mjs`, `.cjs`, `.ts`,
-`.mts` or `.cts` forms. Vite is often only a transitive install, so the config
-file is treated as equally strong evidence.
-
-Section 9 of the Complete Solution Document freezes v1 at these two stacks.
-Django and everything else is unrecognized by design, not by omission.
-
-Detection fails closed. A project declaring both Express and React with Vite
-returns `unrecognized` with an explanation rather than a guess, because the two
-blueprints describe substantially different production shapes and picking the
-wrong one would be worse than picking none.
-
-A missing or unparseable `package.json` is a property of the project under
-inspection, so it resolves to `unrecognized`. Only a path that does not exist or
-is not a directory raises `DetectionError`.
-
-### Production blueprints
-
-A blueprint declares every file, config, and code pattern a deployment-ready
-project of that stack must have. It is data only. It does not check anything and
-it does not fix anything. Rule checks are Phase 2 and fix generation is Phase 3.
-
-Each requirement carries a stable `item_id`, a `domain`, and a `priority`, using
-the domain and priority vocabulary from Section 4 of the Complete Solution
-Document so Phase 2 can map blueprint items onto rule definitions without
-renaming anything.
-
-| Blueprint | Requirements |
-| --- | --- |
-| Node.js with Express | 28 |
-| React with Vite | 22 |
-
-Item ids are namespaced by stack, `node.` and `react.`, so the two sets never
-collide.
-
-Every one of the nine Section 4 domains is either covered by at least one
-requirement or listed in `not_applicable_domains` for that stack. A static
-single page application opens no database connection and serves no API of its
-own, so `connectivity` and `api` are declared inapplicable to the React blueprint
-rather than left silently absent. This distinction matters to Phase 2, which
-otherwise cannot tell a domain that does not apply from one whose rules were
-forgotten.
-
-## Configuration and secrets
-
-ProdPilot keeps two kinds of state, deliberately in two different places.
-
-| | Location | Holds | Committed |
-| --- | --- | --- | --- |
-| Credentials | `~/.prodpilot/config.toml` | GitHub token, Render API key | never |
-| Project state | `<project>/.env.prodpilot` | deployment identifiers for one project | never, gitignored |
-
-A GitHub token and a Render API key belong to the developer, not to any one
-repository, so they live in the user's home directory and never inside a project
-tree. Deployment state belongs to a single project, so it lives beside it.
-
-Design principle 5 in Section 2.1 of the Complete Solution Document states that
-secrets are never written to any committed file. Both halves of this split exist
-to uphold that.
-
-### First run
-
-```bash
-prodpilot setup
-```
-
-Prompts for the GitHub token and the Render API key, writes them to
-`~/.prodpilot/config.toml`, and restricts that file to the current user. Nothing
-entered is printed back to the terminal, and rerunning it lets you keep an
-existing value by pressing enter.
-
-File access is restricted and then verified rather than assumed. On POSIX the
-file is set to mode `0600`. On Windows `os.chmod` cannot express this, since it
-only toggles the read only flag and leaves inherited entries for other accounts
-in place, so ProdPilot breaks inheritance and grants the current user sole
-access through `icacls`. Either way the resulting permissions are read back and
-reported. If the file could not be restricted, setup says so and exits non-zero
-rather than reporting success it cannot prove.
-
-### Checking prerequisites
+Then check that everything ProdPilot needs is in place:
 
 ```bash
 prodpilot doctor
-prodpilot doctor --project /path/to/project
 ```
 
-Reports whether the config file exists, whether each required credential is
-stored, and whether the file is readable by other accounts. Credential values
-are never rendered, only their presence. With `--project` it also reports
-whether `.env.prodpilot` is excluded from version control. It exits non-zero
-when anything required is missing, so a failure is visible to a script.
+```text
+ProdPilot doctor
 
-### `.env.prodpilot`
+Config file: ~/.prodpilot/config.toml
+  found
+  github_token: stored
+  render_api_key: stored
+  permissions: access is limited to the current user
 
-A project local, gitignored file holding per project deployment state. ProdPush
-writes it when it deploys the project:
+Tools ProdPilot runs:
+  git: git version 2.54.0.windows.1
+  Node.js: v26.3.0
+  Docker: daemon 29.7.2
 
-| Key | Meaning |
+All checks passed.
+```
+
+In VS Code, run **MCP: List Servers** and start `prodpilot`. Open your project
+and ask the agent:
+
+> Use ProdPilot to audit this project and fix what it reports, one rule at a time.
+
+## Installation
+
+| Method | Command |
 | --- | --- |
-| `PRODPILOT_SERVICE_ID` | Render service identifier |
-| `PRODPILOT_DEPLOY_ID` | most recent deploy identifier |
-| `PRODPILOT_SERVICE_URL` | live service URL |
+| pipx, recommended | `pipx install prodpilot` |
+| uv | `uv tool install prodpilot` |
+| From source | `git clone https://github.com/prodpilotai/ProdPilot && cd ProdPilot && pip install .` |
 
-Writing a key whose name looks like a credential, matching `TOKEN`, `SECRET`,
-`PASSWORD`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL`, is refused rather than
-warned about. There is no supported way to put a secret into a project
-directory through this API.
+Check the install with `prodpilot --help`, which lists `serve`, `setup`,
+`doctor` and `connect`.
 
-## Data
-
-Two local directories are never committed: `data/` holds the Phase 5 dataset
-and the model in use, and `backup/` holds files that were replaced or retired.
-
-| `data/` | Holds |
+| Requirement | Why |
 | --- | --- |
-| `repos.jsonl` | The collected repositories, each pinned to a commit |
-| `cache/` | Those repositories, cloned at their pinned commits |
-| `negatives.jsonl`, `negatives/` | Synthetic negatives, real projects with one rule deliberately broken |
-| `mirror.json` | Where each synthetic negative was published for Render to deploy |
-| `labels.jsonl` | The real Render outcome of each of the 684 deployed projects |
-| `labels.excluded.jsonl` | The project that could not be deployed, and why |
-| `labelling.log` | The record of the labelling run |
-| `builds.jsonl` | Whether each labelled project builds, with its Node version and log |
-| `features.jsonl`, `features.names.json` | The 26 feature matrix, 675 rows, and its column names |
-| `features.excluded.jsonl` | The 10 rows left out of the matrix, 9 whose build could not be determined and 1 never labelled, and why |
-| `features.skipped.jsonl` | The repository the audit could not process |
-| `model.joblib` | The model as trained, promoted by copying it to `src/prodpilot/model/` |
-| `evaluation.json` | That model's measurements, and the comparison it was chosen from |
-| `training.log` | The output of the training run that produced it |
+| Python 3.11, 3.12, 3.13 or 3.14 | ProdPilot itself |
+| Node.js 20 or later | The audit parses your JavaScript with Node |
+| Docker, running | The gate and the deploy build your project in a container first |
+| git, and a GitHub repository set as the project's `origin` | Deploys push the files ProdPilot generated |
+| A GitHub token | A classic token with the `repo` and `workflow` scopes, or a fine grained one with read and write access to contents, secrets and workflows |
+| A Render account and API key | Render is where the project is deployed |
 
-`backup/` keeps superseded files rather than deleting them: earlier label and
-feature snapshots under `backup/data-history/`, and earlier model candidates,
-logs and trial files under `backup/data-retired-20260913/`. A full copy of
-`data/` taken before the build feature was added is kept outside the
-repository.
+ProdPilot is developed and tested on Windows 11, and the repository's test
+workflow is configured for Linux and macOS.
 
-## Development
+## Usage
+
+### Audit and fix
+
+> Use ProdPilot to audit this project and fix what it reports, one rule at a
+> time, reporting each fix with prodpilot_fix_applied.
+
+The agent asks ProdPilot for the exact change each failing rule needs, applies
+it, and reports back. ProdPilot re-runs the rule's check and answers
+`resolved`, `unresolved` or `blocked`, whatever the agent claimed. On one of
+the deliberately broken sample projects in this repository, the first audit
+scores 13 out of 100 with 6 critical failures; after the fix loop it scores 96
+with none.
+
+### Deploy
+
+Commit your changes, then:
+
+> Deploy this project with prodpilot_deploy.
+
+The deploy creates a real Render service on the free plan and pushes to your
+GitHub repository, so the agent is told to confirm with you first. You get a
+live URL and a GitHub Actions workflow that redeploys on every push and checks
+the service afterwards. A small Express API that the fix loop took from 69 to
+100 went live on Render this way, all nine stages passing, in 82 seconds.
+
+### When something is refused
+
+ProdPilot always says which condition failed. These are real messages:
+
+```text
+score 89 but 1 critical rule(s) still fail: SEC-003
+score 99 meets the threshold, but the model estimates a 5% chance of deploying, below its operating point of 37%
+build failed, missing dependency: npm error The `npm ci` command can only install with an existing package-lock.json or
+```
+
+## Tools and commands
+
+The five tools your IDE's agent sees:
+
+| Tool | What it does |
+| --- | --- |
+| `prodpilot_ping` | Confirms the server is running |
+| `prodpilot_detect_stack` | Identifies the project's stack and returns what a production-ready version must contain |
+| `prodpilot_fix_instruction` | Returns the exact change, or the limits for the change, that fixes one failing rule |
+| `prodpilot_fix_applied` | Takes the agent's report of a fix and answers from the rule's own check |
+| `prodpilot_deploy` | Runs the nine deploy stages; creates a real Render service and pushes to GitHub |
+
+The commands you run:
+
+| Command | What it does |
+| --- | --- |
+| `prodpilot setup` | Stores the GitHub token and Render API key in `~/.prodpilot/config.toml`, readable only by you |
+| `prodpilot doctor [--project PATH]` | Checks the credentials, git, Node.js and Docker; with `--project`, that the project's state file is kept out of git |
+| `prodpilot connect vscode\|cursor\|devin [--project PATH]` | Adds ProdPilot to that IDE's configuration; `--project` is for Devin, which is set up per project |
+| `prodpilot serve` | Starts the MCP server over stdio; your IDE runs this for you |
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Your project] --> B[Audit: 50 rules, score 0 to 100]
+    B --> C[Fix loop: your agent applies, ProdPilot verifies]
+    C --> B
+    C --> D{Gate: score 90 or more, no critical failure, model estimate}
+    D -- refused --> C
+    D -- cleared --> E[Deploy: 9 stages]
+    E --> F[Live on Render, with CI/CD]
+```
+
+Each rule has its own check, and a fix only counts when that check passes on
+the files on disk. Each rule gets three attempts, and the loop runs up to five
+times while the gate stays shut. The deploy stages are pre-flight checks,
+environment sealing, a local Docker build and run, a push of the generated
+files, the Render deployment, deploy monitoring, a smoke test of the live
+service, and CI/CD wiring. The design, the model and the data behind it are in
+[docs/architecture.md](docs/architecture.md).
+
+## Privacy and security
+
+- ProdPilot talks only to GitHub, Render, and, while building your project,
+  Docker Hub and the npm registry. It sends no telemetry.
+- Your GitHub token and Render API key are stored outside every project, in a
+  file restricted to your account.
+- Secrets go to the test container at run time, never into the image, and to
+  GitHub encrypted with your repository's public key.
+
+Report a vulnerability privately as described in [SECURITY.md](SECURITY.md).
+
+## Limitations
+
+- Two stacks only: Node.js with Express, and React with Vite.
+- One deployment target: Render, on its free plan.
+- For the 6 rules where the agent writes the change, how often a live agent's
+  change passes on the first try has not been measured yet.
+- A project whose code requires a file it does not contain can pass the audit;
+  the Docker build during the deploy catches it and names the missing module.
+- Render's own automatic deploy stays on, so a push can start a second deploy
+  beside the workflow's; the workflow waits for the newer one.
+- This is a beta. Not yet observed on real services: a deploy started by an IDE
+  agent, the generated workflow running on GitHub Actions, and `prodpilot
+  connect` inside Cursor and Devin.
+
+## What's new in 1.0.0rc1
+
+- The deployability model ships inside the package.
+- `prodpilot connect` sets up VS Code, Cursor and Devin in one command.
+- `prodpilot doctor` checks git, Node.js and Docker.
+- The generated CI/CD workflow waits for its own deploy before checking the
+  service.
+- Runs on Python 3.11 to 3.14.
+
+The full list is in [CHANGELOG.md](CHANGELOG.md).
+
+## Documentation
+
+- [Quick start and troubleshooting](docs/quickstart.md)
+- [Architecture: the audit, the fix loop, the gate, the model and the data](docs/architecture.md)
+- [IDE compatibility, observed in each client](docs/compatibility.md)
+- [The whole chain run on every sample project](docs/pipeline.md)
+- [Measured fix reliability](docs/metrics.md)
+- [The deployability model's evaluation](docs/evaluation.md)
+
+## Contributing
 
 ```bash
-pip install -e ".[dev]"
-pytest
+git clone https://github.com/prodpilotai/ProdPilot
+cd ProdPilot
+python -m venv .venv
+.venv/bin/pip install -e . --group dev     # on Windows: .venv\Scripts\pip; needs pip 25.1 or later
+.venv/bin/python -m pytest
 ```
 
-Sample projects used by the tests live under `tests/samples/`. They are minimal
-but genuine, each with a real `package.json` and entry point.
+The tests reach no live service: Render and GitHub are scripted. Tests that
+build real Docker images are skipped when no Docker daemon is running. Please
+open an issue before a large change, and run the suite before sending a pull
+request.
 
-The tests reach no live service: every Render and GitHub call is scripted, and
-the build check's tests script Docker too. Tests that build a real Docker image
-with the local daemon are skipped when none is available, and `tests/conftest.py`
-runs the suite on one OpenMP thread, which is faster for the small models the
-training tests fit.
+Questions and bug reports go to
+[GitHub issues](https://github.com/prodpilotai/ProdPilot/issues).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Bundled third-party code is listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Credits
+
+Built by Muhammad Sudais Khalid, Muhammad Farooq Khan and Muhammad Talha Khan
+as the Final Year Project BSAI-FYP-2026 of the Department of Artificial
+Intelligence, Shifa Tameer-e-Millat University, at the Artificial Intelligence
+Technology Centre, National Centre for Physics, Islamabad. Supervised by Mr.
+Rehan Naveed Abbasi, with industrial supervision by Dr. Rana Fayyaz Ahmad and
+Muhammad Junaid Asif.
