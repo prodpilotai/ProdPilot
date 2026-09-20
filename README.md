@@ -55,8 +55,8 @@ prodpilot setup                 # 2. store your GitHub token and Render API key
 prodpilot connect vscode        # 3. connect your IDE: vscode, cursor, or devin --project PATH
 ```
 
-1.0.0rc1 is not on PyPI yet. Until it is, install from a clone of this
-repository with `pip install .` in place of step 1.
+1.0.0rc1 is the only release so far, and it is a release candidate, so the
+command above installs it. To pin it, ask for `prodpilot==1.0.0rc1`.
 
 Then check that everything ProdPilot needs is in place:
 
