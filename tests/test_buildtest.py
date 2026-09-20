@@ -16,6 +16,8 @@ mocked daemon would be testing something else.
 from __future__ import annotations
 
 import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -48,7 +50,37 @@ def daemon() -> bool:
         return False
 
 
-needs_docker = pytest.mark.skipif(not daemon(), reason="no Docker daemon available")
+needs_docker = pytest.mark.skipif(
+    not daemon(), reason="no Docker daemon that runs Linux containers")
+
+
+def test_a_daemon_in_windows_container_mode_is_reported_as_unavailable(monkeypatch):
+    """Every image ProdPilot builds is Linux, so such a daemon cannot serve it.
+
+    GitHub's Windows runners are exactly this: the daemon answers, and every
+    build then fails with "no matching manifest for windows/amd64". Saying it
+    here names what the developer has to change.
+    """
+    class Daemon:
+        def ping(self):
+            return True
+
+        def info(self):
+            return {"OSType": "windows"}
+
+    stub = types.ModuleType("docker")
+    stub.from_env = lambda: Daemon()
+    errors = types.ModuleType("docker.errors")
+    errors.DockerException = Exception
+    stub.errors = errors
+    monkeypatch.setitem(sys.modules, "docker", stub)
+    monkeypatch.setitem(sys.modules, "docker.errors", errors)
+
+    with pytest.raises(BuildUnavailable) as raised:
+        buildtest.client()
+
+    assert "windows containers" in str(raised.value)
+    assert "Linux" in str(raised.value)
 
 
 # Captured verbatim from real failing builds. The legacy builder is what the

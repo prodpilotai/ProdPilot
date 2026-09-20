@@ -2,8 +2,22 @@
 
 ## 1.0.0, 20 September 2026
 
-The first stable release. The code is the same as the two release candidates;
-what changed is what the project now promises and how widely it is tested.
+The first stable release. What changed is what the project now promises, how
+widely it is tested, and two faults that running the suite on Windows for the
+first time uncovered.
+
+### Fixed
+
+- A Docker daemon in Windows container mode was reported as available, and
+  every build then failed with "no matching manifest for windows/amd64" and no
+  classification. ProdPilot now says the daemon runs Windows containers and
+  that its images are Linux, which names what to change.
+- On Windows, the credential file was reported as readable by other accounts
+  when the only entries left were SYSTEM and the Administrators group. Those
+  two read every file on the machine whatever a file's entries say, and they
+  survive breaking inheritance on an account that is an administrator, so the
+  warning could not be acted on. They are now expected, and named in the
+  report; any other account on the file is still a fault.
 
 ### Added
 

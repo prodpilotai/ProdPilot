@@ -117,6 +117,48 @@ def test_saved_file_is_restricted_to_the_current_user(config_home: Path):
     assert verify_permissions(config_module.config_path()).is_restricted
 
 
+def test_the_machines_own_accounts_are_not_reported_as_other_accounts(
+    config_home: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """SYSTEM and Administrators read every file on a Windows machine anyway.
+
+    They survive breaking inheritance on an account that is an administrator,
+    which is what GitHub's Windows runners use, so treating them as a fault is a
+    warning nobody can act on.
+    """
+    path = config_home / "config.toml"
+    path.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(config_module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(config_module, "_current_windows_principal", lambda: "BOX\\dev")
+    monkeypatch.setattr(
+        config_module, "_read_windows_principals",
+        lambda _: ("NT AUTHORITY\\SYSTEM", "BUILTIN\\Administrators", "BOX\\dev"))
+
+    report = verify_permissions(path)
+
+    assert report.state is PermissionState.RESTRICTED, report.detail
+    assert "NT AUTHORITY\\SYSTEM" in report.detail
+
+
+def test_another_account_on_the_file_is_still_reported(
+    config_home: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The check that matters: a second person's account is a fault."""
+    path = config_home / "config.toml"
+    path.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(config_module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(config_module, "_current_windows_principal", lambda: "BOX\\dev")
+    monkeypatch.setattr(
+        config_module, "_read_windows_principals",
+        lambda _: ("BOX\\dev", "NT AUTHORITY\\SYSTEM", "BOX\\someone-else"))
+
+    report = verify_permissions(path)
+
+    assert report.state is PermissionState.UNRESTRICTED
+    assert "BOX\\someone-else" in report.detail
+    assert "SYSTEM" not in report.detail
+
+
 def test_permission_report_on_a_missing_file_is_unknown(config_home: Path):
     report = verify_permissions(config_home / "nope.toml")
 

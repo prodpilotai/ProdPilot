@@ -346,7 +346,13 @@ def first_error(log: str) -> str:
 
 
 def client():
-    """Connect to Docker, or say plainly that it is not available."""
+    """Connect to Docker, or say plainly that it is not available.
+
+    A daemon in Windows container mode is reachable but cannot run any image
+    ProdPilot builds, which are all Linux. Saying so here, rather than letting
+    the build fail later with "no matching manifest", tells the developer what
+    to change: switch Docker Desktop to Linux containers.
+    """
     try:
         import docker
         from docker.errors import DockerException
@@ -355,8 +361,13 @@ def client():
     try:
         made = docker.from_env()
         made.ping()
+        kind = made.info().get("OSType", "")
     except DockerException as exc:
         raise BuildUnavailable(f"cannot reach the Docker daemon: {exc}") from exc
+    if kind and kind != "linux":
+        raise BuildUnavailable(
+            f"the Docker daemon runs {kind} containers, and ProdPilot builds "
+            f"Linux images; switch Docker to Linux containers")
     return made
 
 

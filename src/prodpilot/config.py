@@ -46,6 +46,15 @@ REQUIRED_CREDENTIALS = (GITHUB_TOKEN_KEY, RENDER_API_KEY_KEY)
 OWNER_ONLY_MODE = 0o600
 OWNER_ONLY_DIR_MODE = 0o700
 
+# On Windows these two read every file on the machine whatever a file's own
+# entries say, and on an account that belongs to the Administrators group they
+# survive breaking inheritance. Reporting them as "other accounts" would mean a
+# warning no developer can act on, so they are expected rather than a fault. Any
+# other account on the file still is one. The names are the English ones; a
+# localized Windows reports its own, which this treats as a fault, erring
+# towards saying too much rather than too little.
+MACHINE_PRINCIPALS = ("nt authority\\system", "builtin\\administrators")
+
 
 class ConfigError(Exception):
     """Raised when the configuration store cannot be read or written."""
@@ -205,11 +214,22 @@ def verify_permissions(path: Path) -> PermissionReport:
                 PermissionState.UNKNOWN, "could not read access control entries"
             )
         expected = _current_windows_principal().lower()
-        others = tuple(p for p in principals if p.lower() != expected)
+        machine = tuple(p for p in principals if p.lower() in MACHINE_PRINCIPALS)
+        others = tuple(
+            p for p in principals
+            if p.lower() != expected and p.lower() not in MACHINE_PRINCIPALS
+        )
         if others:
             return PermissionReport(
                 PermissionState.UNRESTRICTED,
                 "other accounts can read this file: " + ", ".join(others),
+                principals,
+            )
+        if machine:
+            return PermissionReport(
+                PermissionState.RESTRICTED,
+                "access is limited to the current user, and to "
+                + ", ".join(machine),
                 principals,
             )
         return PermissionReport(
