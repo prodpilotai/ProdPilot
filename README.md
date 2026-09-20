@@ -271,5 +271,4 @@ Built by Muhammad Sudais Khalid, Muhammad Farooq Khan and Muhammad Talha Khan
 as the Final Year Project BSAI-FYP-2026 of the Department of Artificial
 Intelligence, Shifa Tameer-e-Millat University, at the Artificial Intelligence
 Technology Centre, National Centre for Physics, Islamabad. Supervised by Mr.
-Rehan Naveed Abbasi, with industrial supervision by Dr. Rana Fayyaz Ahmad and
-Muhammad Junaid Asif.
+Rehan Naveed Abbasi, Muhammad Tahir with industrial supervision by Dr. Rana Fayyaz Ahmad and Muhammad Junaid Asif.
