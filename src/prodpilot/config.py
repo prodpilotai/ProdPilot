@@ -55,6 +55,13 @@ OWNER_ONLY_DIR_MODE = 0o700
 # towards saying too much rather than too little.
 MACHINE_PRINCIPALS = ("nt authority\\system", "builtin\\administrators")
 
+# OWNER RIGHTS, the well known SID S-1-3-4, is not an account. It bounds what
+# the file's owner may do, and Windows puts it on files whose owner is a group,
+# which is what happens under an account in the Administrators group. Naming it
+# as an account that can read the file would be wrong, so it is not counted at
+# all.
+NOT_AN_ACCOUNT = ("owner rights",)
+
 
 class ConfigError(Exception):
     """Raised when the configuration store cannot be read or written."""
@@ -217,7 +224,9 @@ def verify_permissions(path: Path) -> PermissionReport:
         machine = tuple(p for p in principals if p.lower() in MACHINE_PRINCIPALS)
         others = tuple(
             p for p in principals
-            if p.lower() != expected and p.lower() not in MACHINE_PRINCIPALS
+            if p.lower() != expected
+            and p.lower() not in MACHINE_PRINCIPALS
+            and p.lower() not in NOT_AN_ACCOUNT
         )
         if others:
             return PermissionReport(

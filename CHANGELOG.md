@@ -13,11 +13,13 @@ first time uncovered.
   classification. ProdPilot now says the daemon runs Windows containers and
   that its images are Linux, which names what to change.
 - On Windows, the credential file was reported as readable by other accounts
-  when the only entries left were SYSTEM and the Administrators group. Those
-  two read every file on the machine whatever a file's entries say, and they
-  survive breaking inheritance on an account that is an administrator, so the
-  warning could not be acted on. They are now expected, and named in the
-  report; any other account on the file is still a fault.
+  when the only entries left were SYSTEM, the Administrators group and OWNER
+  RIGHTS. The first two read every file on the machine whatever a file's
+  entries say, and they survive breaking inheritance on an account that is an
+  administrator, so the warning could not be acted on; they are now expected
+  and named in the report. OWNER RIGHTS is not an account at all, but a bound
+  on what the file's owner may do, so it is not counted. Any other account on
+  the file is still a fault.
 
 ### Added
 

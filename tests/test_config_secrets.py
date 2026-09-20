@@ -132,12 +132,16 @@ def test_the_machines_own_accounts_are_not_reported_as_other_accounts(
     monkeypatch.setattr(config_module, "_current_windows_principal", lambda: "BOX\\dev")
     monkeypatch.setattr(
         config_module, "_read_windows_principals",
-        lambda _: ("NT AUTHORITY\\SYSTEM", "BUILTIN\\Administrators", "BOX\\dev"))
+        lambda _: ("NT AUTHORITY\\SYSTEM", "BUILTIN\\Administrators", "BOX\\dev",
+                   "OWNER RIGHTS"))
 
     report = verify_permissions(path)
 
     assert report.state is PermissionState.RESTRICTED, report.detail
     assert "NT AUTHORITY\\SYSTEM" in report.detail
+    # OWNER RIGHTS bounds what the owner may do. It is not an account, so it is
+    # not named among the accounts that can read the file.
+    assert "OWNER RIGHTS" not in report.detail
 
 
 def test_another_account_on_the_file_is_still_reported(
