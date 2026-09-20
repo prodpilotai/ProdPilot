@@ -54,6 +54,9 @@ jobs:
           # A re-run of a tag whose files are already on PyPI passes instead of
           # failing, because a version can never be uploaded twice.
           skip-existing: true
+          # Each file is signed as built by this workflow, so anyone can check
+          # where it came from.
+          attestations: true
 
   # The GitHub release is made from the tag, so a tag push is all it takes to
   # publish. Its notes are the section this version already has in CHANGELOG.md.

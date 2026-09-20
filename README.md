@@ -5,7 +5,7 @@
 [![Tests](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml/badge.svg)](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml)
 [![Python 3.11 to 3.14](https://img.shields.io/badge/python-3.11%20to%203.14-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Status: beta](https://img.shields.io/badge/status-beta%201.0.0rc2-orange)](CHANGELOG.md)
+[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-brightgreen)](CHANGELOG.md)
 
 AI coding assistants make it quick to build a Node.js API or a React app that
 runs on your laptop. Getting it to run in production is where it breaks:
@@ -55,8 +55,7 @@ prodpilot setup                 # 2. store your GitHub token and Render API key
 prodpilot connect vscode        # 3. connect your IDE: vscode, cursor, or devin --project PATH
 ```
 
-1.0.0rc2 is the current release and it is a release candidate, so the command
-above installs it. To pin it, ask for `prodpilot==1.0.0rc2`.
+To pin the version, ask for `prodpilot==1.0.0`.
 
 Then check that everything ProdPilot needs is in place:
 
@@ -98,7 +97,9 @@ and ask the agent:
 `pip install prodpilot` works and is the shortest route. pipx and uv are
 recommended because ProdPilot is a command line tool: they keep it and its
 dependencies in their own environment, so it cannot clash with the packages of
-whatever project you are working on.
+whatever project you are working on. That matters here because ProdPilot pins
+scikit-learn to the version that saved the model it ships, which only that
+version is guaranteed to read.
 
 Check the install with `prodpilot --help`, which lists `serve`, `setup`,
 `doctor` and `connect`.
@@ -112,8 +113,10 @@ Check the install with `prodpilot --help`, which lists `serve`, `setup`,
 | A GitHub token | A classic token with the `repo` and `workflow` scopes, or a fine grained one with read and write access to contents, secrets and workflows |
 | A Render account and API key | Render is where the project is deployed |
 
-ProdPilot is developed and tested on Windows 11, and the repository's test
-workflow is configured for Linux and macOS.
+ProdPilot is developed on Windows 11, and its test workflow runs the suite on
+Linux, macOS and Windows for Python 3.11 to 3.14. The same workflow installs
+the built wheel outside the repository on all three systems and loads the
+shipped model, which is what `pip install prodpilot` gives you.
 
 ## Usage
 
@@ -218,7 +221,7 @@ Report a vulnerability privately as described in [SECURITY.md](SECURITY.md).
   agent, the generated workflow running on GitHub Actions, and `prodpilot
   connect` inside Cursor and Devin.
 
-## What's new in the first release candidate
+## What's in 1.0.0
 
 - The deployability model ships inside the package.
 - `prodpilot connect` sets up VS Code, Cursor and Devin in one command.
@@ -237,6 +240,7 @@ The full list is in [CHANGELOG.md](CHANGELOG.md).
 - [The whole chain run on every sample project](docs/pipeline.md)
 - [Measured fix reliability](docs/metrics.md)
 - [The deployability model's evaluation](docs/evaluation.md)
+- [What 1.x keeps stable](docs/stability.md)
 
 ## Contributing
 

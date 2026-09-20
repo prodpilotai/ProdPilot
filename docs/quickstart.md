@@ -26,8 +26,8 @@ ProdPilot checks every fix the agent makes against the rule's own checker.
 pipx install prodpilot        # or: uv tool install prodpilot, or: pip install prodpilot
 ```
 
-The current release, 1.0.0rc2, is a release candidate. It is the newest
-release, so the command above installs it; pin it with `prodpilot==1.0.0rc2`.
+Pin the version with `prodpilot==1.0.0` if you want to.
+What 1.x keeps stable is written down in [stability.md](stability.md).
 
 ## Set up
 

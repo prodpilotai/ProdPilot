@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.0.0, 20 September 2026
+
+The first stable release. The code is the same as the two release candidates;
+what changed is what the project now promises and how widely it is tested.
+
+### Added
+
+- [docs/stability.md](docs/stability.md): what 1.x keeps stable. The five tool
+  names and their fields, the rule identifiers, the commands and their flags,
+  where credentials live, and the gate's three conditions. It also says what is
+  not promised, including the score a given project receives, the number of
+  rules and the model's estimates.
+- The test workflow runs on Windows as well as Linux and macOS, so the platform
+  ProdPilot is developed on is covered by its own suite.
+- The packaged wheel is installed outside the repository on all three systems,
+  and the shipped model is loaded there, so what `pip install prodpilot` gives
+  a user is checked on each of them.
+- Files published to PyPI carry attestations, so anyone can check that they
+  were built by this repository's release workflow.
+
+### Known limits
+
+These are unchanged from the release candidates and are stated here rather than
+dropped:
+
+- Supported stacks are Node.js with Express and React with Vite; the only
+  deployment target is Render.
+- How often a live agent's delegated fix passes verification has not been
+  measured across the six delegated rules.
+- Not yet observed end to end on a real service: the deploy tool called by an
+  IDE agent, and the CI/CD workflow ProdPilot writes redeploying a live service
+  from GitHub Actions. The nine stages and the generated workflow are covered
+  by the suite against scripted APIs.
+- Render's own automatic deploy stays on, so a push can start a second deploy
+  beside the workflow's; the workflow waits for the newer one.
+
 ## 1.0.0rc2, 20 September 2026
 
 A packaging and documentation release. The code is the same as 1.0.0rc1.
