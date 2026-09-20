@@ -23,7 +23,7 @@ ProdPilot checks every fix the agent makes against the rule's own checker.
 ## Install
 
 ```bash
-pipx install prodpilot        # or: uv tool install prodpilot
+pipx install prodpilot        # or: uv tool install prodpilot, or: pip install prodpilot
 ```
 
 The current release, 1.0.0rc1, is a release candidate. It is the only release

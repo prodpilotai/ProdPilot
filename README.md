@@ -92,7 +92,13 @@ and ask the agent:
 | --- | --- |
 | pipx, recommended | `pipx install prodpilot` |
 | uv | `uv tool install prodpilot` |
+| pip | `pip install prodpilot` |
 | From source | `git clone https://github.com/prodpilotai/ProdPilot && cd ProdPilot && pip install .` |
+
+`pip install prodpilot` works and is the shortest route. pipx and uv are
+recommended because ProdPilot is a command line tool: they keep it and its
+dependencies in their own environment, so it cannot clash with the packages of
+whatever project you are working on.
 
 Check the install with `prodpilot --help`, which lists `serve`, `setup`,
 `doctor` and `connect`.

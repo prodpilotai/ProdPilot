@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0rc1, unreleased
+## 1.0.0rc1, 20 September 2026
 
 The first release candidate, prepared for a beta with outside users.
 

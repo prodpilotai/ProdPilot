@@ -50,3 +50,46 @@ jobs:
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A re-run of a tag whose files are already on PyPI passes instead of
+          # failing, because a version can never be uploaded twice.
+          skip-existing: true
+
+  # The GitHub release is made from the tag, so a tag push is all it takes to
+  # publish. Its notes are the section this version already has in CHANGELOG.md.
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Take the notes for this version out of the changelog
+        run: |
+          python - <<'PY' > notes.md
+          import os, pathlib, re
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          found = re.search(rf"^## {re.escape(version)}(?:,[^\n]*)?\n(.*?)(?=^## |\Z)",
+                            text, re.S | re.M)
+          print((found.group(1).strip() if found else
+                 f"ProdPilot {version}.").strip())
+          PY
+          test -s notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *rc*|*a[0-9]*|*b[0-9]*) pre="--prerelease" ;;
+            *) pre="" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "ProdPilot $GITHUB_REF_NAME" --notes-file notes.md $pre
