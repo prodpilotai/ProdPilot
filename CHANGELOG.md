@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0rc2, 20 September 2026
+
+A packaging and documentation release. The code is the same as 1.0.0rc1.
+
+### Fixed
+
+- The description on PyPI said the release was not on PyPI yet, because that
+  was true when 1.0.0rc1 was built. A description can only be corrected by
+  publishing again, which is what this version is for.
+
+### Changed
+
+- The install table names pip beside pipx and uv, and says why pipx and uv are
+  recommended for a command line tool.
+- Tagging now publishes on its own: the release workflow creates the GitHub
+  release after the upload, with the notes this changelog already holds for the
+  version, the wheel and the sdist attached, and a candidate marked as a
+  pre-release. An upload skips files already on PyPI, so a re-run of a tag no
+  longer fails.
+
 ## 1.0.0rc1, 20 September 2026
 
 The first release candidate, prepared for a beta with outside users.

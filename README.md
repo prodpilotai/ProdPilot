@@ -5,7 +5,7 @@
 [![Tests](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml/badge.svg)](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml)
 [![Python 3.11 to 3.14](https://img.shields.io/badge/python-3.11%20to%203.14-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Status: beta](https://img.shields.io/badge/status-beta%201.0.0rc1-orange)](CHANGELOG.md)
+[![Status: beta](https://img.shields.io/badge/status-beta%201.0.0rc2-orange)](CHANGELOG.md)
 
 AI coding assistants make it quick to build a Node.js API or a React app that
 runs on your laptop. Getting it to run in production is where it breaks:
@@ -55,8 +55,8 @@ prodpilot setup                 # 2. store your GitHub token and Render API key
 prodpilot connect vscode        # 3. connect your IDE: vscode, cursor, or devin --project PATH
 ```
 
-1.0.0rc1 is the only release so far, and it is a release candidate, so the
-command above installs it. To pin it, ask for `prodpilot==1.0.0rc1`.
+1.0.0rc2 is the current release and it is a release candidate, so the command
+above installs it. To pin it, ask for `prodpilot==1.0.0rc2`.
 
 Then check that everything ProdPilot needs is in place:
 
@@ -218,7 +218,7 @@ Report a vulnerability privately as described in [SECURITY.md](SECURITY.md).
   agent, the generated workflow running on GitHub Actions, and `prodpilot
   connect` inside Cursor and Devin.
 
-## What's new in 1.0.0rc1
+## What's new in the first release candidate
 
 - The deployability model ships inside the package.
 - `prodpilot connect` sets up VS Code, Cursor and Devin in one command.

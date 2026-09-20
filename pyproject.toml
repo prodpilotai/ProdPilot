@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prodpilot"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 description = "A layered MCP-based system for automated production readiness and deployment of vibe-coded projects."
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
