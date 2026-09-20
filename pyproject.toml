@@ -6,8 +6,25 @@ build-backend = "hatchling.build"
 name = "prodpilot"
 version = "1.0.0rc1"
 description = "A layered MCP-based system for automated production readiness and deployment of vibe-coded projects."
+readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = { text = "MIT" }
+keywords = ["mcp", "deployment", "production-readiness", "devops", "audit", "render", "ci-cd"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Installation/Setup",
+]
 authors = [
     { name = "Muhammad Sudais Khalid", email = "msudaiskhalid.ai@gmail.com" },
     { name = "Muhammad Farooq Khan", email = "farooqhoi52@gmail.com" },
@@ -24,6 +41,13 @@ dependencies = [
     "scikit-learn==1.9.0",
     "joblib>=1.4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/prodpilotai/ProdPilot"
+Repository = "https://github.com/prodpilotai/ProdPilot"
+Documentation = "https://github.com/prodpilotai/ProdPilot/blob/main/docs/quickstart.md"
+Changelog = "https://github.com/prodpilotai/ProdPilot/blob/main/CHANGELOG.md"
+Issues = "https://github.com/prodpilotai/ProdPilot/issues"
 
 [project.scripts]
 prodpilot = "prodpilot.cli:app"
