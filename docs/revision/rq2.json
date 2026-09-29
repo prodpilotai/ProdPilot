@@ -1,0 +1,231 @@
+{
+ "repos_found": 500,
+ "repos_audited": 499,
+ "not_audited": [
+  {
+   "name": "lifedever__ANodeBlog",
+   "error": "RecursionError: maximum recursion depth exceeded while decoding a JSON object from a unicode string"
+  }
+ ],
+ "violations": 7407,
+ "by_type": {
+  "STATIC": {
+   "count": 4881,
+   "share": 0.659
+  },
+  "DYNAMIC-PARAMETRIC": {
+   "count": 2045,
+   "share": 0.2761
+  },
+  "DYNAMIC-DELEGATED": {
+   "count": 481,
+   "share": 0.0649
+  }
+ },
+ "deterministic_share": 0.9351,
+ "by_stack": {
+  "node_express": {
+   "violations": 4590,
+   "by_type": {
+    "STATIC": {
+     "count": 2989,
+     "share": 0.6512
+    },
+    "DYNAMIC-PARAMETRIC": {
+     "count": 1366,
+     "share": 0.2976
+    },
+    "DYNAMIC-DELEGATED": {
+     "count": 235,
+     "share": 0.0512
+    }
+   },
+   "deterministic_share": 0.9488
+  },
+  "react_vite": {
+   "violations": 2817,
+   "by_type": {
+    "STATIC": {
+     "count": 1892,
+     "share": 0.6716
+    },
+    "DYNAMIC-PARAMETRIC": {
+     "count": 679,
+     "share": 0.241
+    },
+    "DYNAMIC-DELEGATED": {
+     "count": 246,
+     "share": 0.0873
+    }
+   },
+   "deterministic_share": 0.9127
+  }
+ },
+ "priority_weighted": {
+  "by_type": {
+   "STATIC": {
+    "count": 88180,
+    "share": 0.7028
+   },
+   "DYNAMIC-PARAMETRIC": {
+    "count": 36568,
+    "share": 0.2914
+   },
+   "DYNAMIC-DELEGATED": {
+    "count": 730,
+    "share": 0.0058
+   }
+  },
+  "deterministic_share": 0.9942
+ },
+ "by_priority": {
+  "P0": {
+   "violations": 2311,
+   "deterministic_share": 1.0
+  },
+  "P1": {
+   "violations": 2733,
+   "deterministic_share": 1.0
+  },
+  "P2": {
+   "violations": 557,
+   "deterministic_share": 1.0
+  },
+  "P3": {
+   "violations": 83,
+   "deterministic_share": 0.0
+  },
+  "P4": {
+   "violations": 1287,
+   "deterministic_share": 1.0
+  },
+  "P5": {
+   "violations": 436,
+   "deterministic_share": 0.0872
+  }
+ },
+ "per_repo": {
+  "react_vite": {
+   "repos": 239,
+   "mean": 11.79,
+   "median": 12,
+   "min": 6,
+   "max": 16
+  },
+  "node_express": {
+   "repos": 260,
+   "mean": 17.65,
+   "median": 19.0,
+   "min": 7,
+   "max": 23
+  }
+ },
+ "repos_with_delegated": 412,
+ "single_rule_repos": 0,
+ "repos_failing_p0": 499,
+ "rules_seen": 50,
+ "top_rules": [
+  {
+   "rule": "SCR-001",
+   "repos": 257,
+   "type": "STATIC",
+   "priority": "P0"
+  },
+  {
+   "rule": "BLD-006",
+   "repos": 253,
+   "type": "DYNAMIC-PARAMETRIC",
+   "priority": "P1"
+  },
+  {
+   "rule": "SEC-001",
+   "repos": 253,
+   "type": "STATIC",
+   "priority": "P0"
+  },
+  {
+   "rule": "BLD-005",
+   "repos": 249,
+   "type": "STATIC",
+   "priority": "P1"
+  },
+  {
+   "rule": "OBS-005",
+   "repos": 239,
+   "type": "STATIC",
+   "priority": "P4"
+  },
+  {
+   "rule": "SEC-006",
+   "repos": 239,
+   "type": "STATIC",
+   "priority": "P0"
+  },
+  {
+   "rule": "SEC-005",
+   "repos": 238,
+   "type": "STATIC",
+   "priority": "P0"
+  },
+  {
+   "rule": "OBS-006",
+   "repos": 238,
+   "type": "STATIC",
+   "priority": "P4"
+  },
+  {
+   "rule": "BLD-002",
+   "repos": 235,
+   "type": "STATIC",
+   "priority": "P1"
+  },
+  {
+   "rule": "SEC-003",
+   "repos": 234,
+   "type": "STATIC",
+   "priority": "P0"
+  }
+ ],
+ "extraction": {
+  "parametric_instances": 2045,
+  "refused": 830,
+  "refusal_rate": 0.4059,
+  "by_kind": {
+   "ambiguity": {
+    "refused": 120,
+    "share_of_parametric": 0.0587
+   },
+   "disagreement": {
+    "refused": 115,
+    "share_of_parametric": 0.0562
+   },
+   "missing input": {
+    "refused": 149,
+    "share_of_parametric": 0.0729
+   },
+   "precondition": {
+    "refused": 446,
+    "share_of_parametric": 0.2181
+   }
+  },
+  "reasons": {
+   "the Dockerfile declares no base image to build from": 445,
+   "the value is not bound to a named identifier, so no environment variable name can be derived from it": 89,
+   "no inline connection string was found to move": 88,
+   "routes are mounted under N different roots, so one versioned prefix cannot be derived": 70,
+   "no supported database driver is declared in package.json": 23,
+   "N different hosts appear in source, so one key cannot hold them all": 21,
+   "no entry point is declared and none of the conventional names exist": 21,
+   "N lockfiles are present, so the package manager is unclear": 17,
+   "no credential literal was found to move": 15,
+   "package.json declares no build script, so there is nothing to build": 14,
+   "mongoose pools by default, so this rule needs no fix here": 11,
+   "N database drivers are declared, so the pool to configure is unclear": 5,
+   "N candidate entry points exist and package.json names none": 5,
+   "the value is bound to N different names, so the codebase does not settle what to call it": 2,
+   "package.json declares no build script, so there is nothing to serve": 2,
+   "no request targets a literal host": 1,
+   "the Dockerfile declares no CMD, so the runtime stage has no command": 1
+  }
+ }
+}
