@@ -9,7 +9,7 @@ the data directory and a live stdio session with the server.
 | Version the server reports | 1.0.0rc1 |
 | The two agree | no |
 | Tags | 1.0.0rc1 (a18d4a4), v1.0.0 (7b7693f), v1.0.0rc1 (6ab7382), v1.0.0rc2 (594a721) |
-| Tests collected | 1803 |
+| Tests collected | 1828 |
 | CI operating systems | ubuntu-latest, macos-latest, windows-latest |
 | CI Python versions | 3.11, 3.12, 3.13, 3.14 |
 | Workflow at the live deploy | 679b0a9 2026-09-12 Close Phase 6 with the ProdPush pipeline and the deploy tool, fixed wait: yes |

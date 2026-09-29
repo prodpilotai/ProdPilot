@@ -11,7 +11,7 @@
   }
  },
  "tests": {
-  "collected": 1803,
+  "collected": 1828,
   "matrix": {
    "os": [
     "ubuntu-latest",
