@@ -1,0 +1,82 @@
+{
+ "version": {
+  "pyproject": "1.0.0",
+  "runtime": "1.0.0rc1",
+  "agree": false,
+  "tags": {
+   "1.0.0rc1": "a18d4a4",
+   "v1.0.0": "7b7693f",
+   "v1.0.0rc1": "6ab7382",
+   "v1.0.0rc2": "594a721"
+  }
+ },
+ "tests": {
+  "collected": 1803,
+  "matrix": {
+   "os": [
+    "ubuntu-latest",
+    "macos-latest",
+    "windows-latest"
+   ],
+   "python": [
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14"
+   ]
+  }
+ },
+ "cicd": {
+  "phase6_template": "679b0a9 2026-09-12 Close Phase 6 with the ProdPush pipeline and the deploy tool",
+  "phase6_fixed_wait": true,
+  "wait_for_deploy_commit": "a8e059d 2026-09-15 Make the CI workflow wait for the deploy it started",
+  "current_fixed_wait": false,
+  "run_history": "not measured: the GitHub CLI is not authenticated on this machine"
+ },
+ "response": {
+  "tool": "prodpilot_detect_stack",
+  "sample": "node_express_insecure",
+  "blueprint_items": 28,
+  "text_bytes": 6431,
+  "structured_bytes": 5003,
+  "result_bytes": 11988,
+  "result_kib": 11.71,
+  "result_kb": 11.99
+ },
+ "node": {
+  "dockerfile_default_major": "20",
+  "build_images": [
+   "node:lts",
+   "node:latest",
+   "node:22-slim",
+   "node:20",
+   "node:16",
+   "node:12",
+   "node:10"
+  ],
+  "build_pass": {
+   "rows": 684,
+   "by_image": {
+    "node:lts": 503,
+    "node:latest": 128,
+    "node:20": 21,
+    "node:22-slim": 19,
+    "node:12": 8,
+    "node:16": 3,
+    "node:10": 2
+   },
+   "fallback_rows": 39,
+   "fallback_images": {
+    "node:lts": 39
+   },
+   "fallback_wanted": {
+    "18": 12,
+    "4": 11,
+    "6": 7,
+    "8": 6,
+    "0": 2,
+    "14": 1
+   }
+  }
+ }
+}
