@@ -1,0 +1,1845 @@
+{
+ "real_repos": 498,
+ "real_deploy_rate": 0.1908,
+ "negative_rows": 186,
+ "negative_deploy_rate": 0.1828,
+ "per_rule": [
+  {
+   "stack": "node_express",
+   "what": "API-001",
+   "fail": {
+    "deployed": 7,
+    "of": 228,
+    "rate": 0.0307,
+    "low": 0.0149,
+    "high": 0.062
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 5,
+    "rate": 0.2,
+    "low": 0.0362,
+    "high": 0.6245
+   },
+   "difference": -0.1693,
+   "low": -0.5941,
+   "high": -0.0026,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "API-002",
+   "fail": {
+    "deployed": 6,
+    "of": 164,
+    "rate": 0.0366,
+    "low": 0.0169,
+    "high": 0.0775
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 11,
+    "rate": 0.0909,
+    "low": 0.0162,
+    "high": 0.3774
+   },
+   "difference": -0.0543,
+   "low": -0.3415,
+   "high": 0.0308,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "API-003",
+   "fail": {
+    "deployed": 6,
+    "of": 162,
+    "rate": 0.037,
+    "low": 0.0171,
+    "high": 0.0784
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 9,
+    "rate": 0.1111,
+    "low": 0.0199,
+    "high": 0.435
+   },
+   "difference": -0.0741,
+   "low": -0.3986,
+   "high": 0.0261,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-001",
+   "fail": {
+    "deployed": 3,
+    "of": 223,
+    "rate": 0.0135,
+    "low": 0.0046,
+    "high": 0.0388
+   },
+   "pass": {
+    "deployed": 5,
+    "of": 36,
+    "rate": 0.1389,
+    "low": 0.0608,
+    "high": 0.2866
+   },
+   "difference": -0.1254,
+   "low": -0.2734,
+   "high": -0.0434,
+   "excludes_zero": true,
+   "excludes_zero_corrected": true
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-002",
+   "fail": {
+    "deployed": 6,
+    "of": 234,
+    "rate": 0.0256,
+    "low": 0.0118,
+    "high": 0.0548
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 25,
+    "rate": 0.08,
+    "low": 0.0222,
+    "high": 0.2497
+   },
+   "difference": -0.0544,
+   "low": -0.2246,
+   "high": 0.0104,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-003",
+   "fail": {
+    "deployed": 6,
+    "of": 208,
+    "rate": 0.0288,
+    "low": 0.0133,
+    "high": 0.0615
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 51,
+    "rate": 0.0392,
+    "low": 0.0108,
+    "high": 0.1322
+   },
+   "difference": -0.0104,
+   "low": -0.1046,
+   "high": 0.0329,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-004",
+   "fail": {
+    "deployed": 1,
+    "of": 142,
+    "rate": 0.007,
+    "low": 0.0012,
+    "high": 0.0388
+   },
+   "pass": {
+    "deployed": 7,
+    "of": 117,
+    "rate": 0.0598,
+    "low": 0.0293,
+    "high": 0.1184
+   },
+   "difference": -0.0528,
+   "low": -0.1116,
+   "high": -0.0087,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-005",
+   "fail": {
+    "deployed": 7,
+    "of": 248,
+    "rate": 0.0282,
+    "low": 0.0137,
+    "high": 0.0571
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 11,
+    "rate": 0.0909,
+    "low": 0.0162,
+    "high": 0.3774
+   },
+   "difference": -0.0627,
+   "low": -0.3495,
+   "high": 0.0174,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-006",
+   "fail": {
+    "deployed": 8,
+    "of": 252,
+    "rate": 0.0317,
+    "low": 0.0162,
+    "high": 0.0614
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 7,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.3543
+   },
+   "difference": 0.0317,
+   "low": -0.3229,
+   "high": 0.0614,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "CON-001",
+   "fail": {
+    "deployed": 3,
+    "of": 88,
+    "rate": 0.0341,
+    "low": 0.0117,
+    "high": 0.0955
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 17,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.1843
+   },
+   "difference": 0.0341,
+   "low": -0.1516,
+   "high": 0.0955,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "CON-002",
+   "fail": {
+    "deployed": 3,
+    "of": 55,
+    "rate": 0.0545,
+    "low": 0.0187,
+    "high": 0.1485
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 46,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0771
+   },
+   "difference": 0.0545,
+   "low": -0.0304,
+   "high": 0.1485,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "ENV-001",
+   "fail": {
+    "deployed": 7,
+    "of": 149,
+    "rate": 0.047,
+    "low": 0.0229,
+    "high": 0.0938
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 7,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.3543
+   },
+   "difference": 0.047,
+   "low": -0.3082,
+   "high": 0.0938,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "ENV-002",
+   "fail": {
+    "deployed": 5,
+    "of": 146,
+    "rate": 0.0342,
+    "low": 0.0147,
+    "high": 0.0777
+   },
+   "pass": {
+    "deployed": 3,
+    "of": 55,
+    "rate": 0.0545,
+    "low": 0.0187,
+    "high": 0.1485
+   },
+   "difference": -0.0203,
+   "low": -0.1163,
+   "high": 0.036,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "GIT-001",
+   "fail": {
+    "deployed": 0,
+    "of": 5,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.4345
+   },
+   "pass": {
+    "deployed": 8,
+    "of": 254,
+    "rate": 0.0315,
+    "low": 0.016,
+    "high": 0.0609
+   },
+   "difference": -0.0315,
+   "low": -0.0609,
+   "high": 0.4033,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "GIT-002",
+   "fail": {
+    "deployed": 0,
+    "of": 10,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.2775
+   },
+   "pass": {
+    "deployed": 8,
+    "of": 249,
+    "rate": 0.0321,
+    "low": 0.0164,
+    "high": 0.0621
+   },
+   "difference": -0.0321,
+   "low": -0.0621,
+   "high": 0.2459,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "GIT-003",
+   "fail": {
+    "deployed": 7,
+    "of": 186,
+    "rate": 0.0376,
+    "low": 0.0183,
+    "high": 0.0756
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 73,
+    "rate": 0.0137,
+    "low": 0.0024,
+    "high": 0.0736
+   },
+   "difference": 0.0239,
+   "low": -0.039,
+   "high": 0.0636,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "OBS-001",
+   "fail": {
+    "deployed": 4,
+    "of": 165,
+    "rate": 0.0242,
+    "low": 0.0095,
+    "high": 0.0607
+   },
+   "pass": {
+    "deployed": 3,
+    "of": 7,
+    "rate": 0.4286,
+    "low": 0.1582,
+    "high": 0.7495
+   },
+   "difference": -0.4043,
+   "low": -0.7256,
+   "high": -0.1315,
+   "excludes_zero": true,
+   "excludes_zero_corrected": true
+  },
+  {
+   "stack": "node_express",
+   "what": "OBS-002",
+   "fail": {
+    "deployed": 5,
+    "of": 178,
+    "rate": 0.0281,
+    "low": 0.0121,
+    "high": 0.0641
+   },
+   "pass": {
+    "deployed": 3,
+    "of": 51,
+    "rate": 0.0588,
+    "low": 0.0202,
+    "high": 0.1592
+   },
+   "difference": -0.0307,
+   "low": -0.1324,
+   "high": 0.022,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "OBS-003",
+   "fail": {
+    "deployed": 8,
+    "of": 231,
+    "rate": 0.0346,
+    "low": 0.0177,
+    "high": 0.0668
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 2,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.6576
+   },
+   "difference": 0.0346,
+   "low": -0.6232,
+   "high": 0.0668,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "OBS-004",
+   "fail": {
+    "deployed": 8,
+    "of": 232,
+    "rate": 0.0345,
+    "low": 0.0176,
+    "high": 0.0666
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 1,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.7935
+   },
+   "difference": 0.0345,
+   "low": -0.7591,
+   "high": 0.0666,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "SCR-001",
+   "fail": {
+    "deployed": 8,
+    "of": 256,
+    "rate": 0.0312,
+    "low": 0.0159,
+    "high": 0.0604
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 3,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.5615
+   },
+   "difference": 0.0312,
+   "low": -0.5305,
+   "high": 0.0604,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "SCR-002",
+   "fail": {
+    "deployed": 3,
+    "of": 79,
+    "rate": 0.038,
+    "low": 0.013,
+    "high": 0.1058
+   },
+   "pass": {
+    "deployed": 5,
+    "of": 180,
+    "rate": 0.0278,
+    "low": 0.0119,
+    "high": 0.0634
+   },
+   "difference": 0.0102,
+   "low": -0.0333,
+   "high": 0.0799,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "SEC-001",
+   "fail": {
+    "deployed": 6,
+    "of": 252,
+    "rate": 0.0238,
+    "low": 0.011,
+    "high": 0.051
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 7,
+    "rate": 0.2857,
+    "low": 0.0822,
+    "high": 0.6411
+   },
+   "difference": -0.2619,
+   "low": -0.6175,
+   "high": -0.0566,
+   "excludes_zero": true,
+   "excludes_zero_corrected": true
+  },
+  {
+   "stack": "node_express",
+   "what": "SEC-002",
+   "fail": {
+    "deployed": 7,
+    "of": 161,
+    "rate": 0.0435,
+    "low": 0.0212,
+    "high": 0.087
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 20,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.1611
+   },
+   "difference": 0.0435,
+   "low": -0.1192,
+   "high": 0.087,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "SEC-003",
+   "fail": {
+    "deployed": 8,
+    "of": 233,
+    "rate": 0.0343,
+    "low": 0.0175,
+    "high": 0.0663
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "SEC-004",
+   "fail": {
+    "deployed": 8,
+    "of": 232,
+    "rate": 0.0345,
+    "low": 0.0176,
+    "high": 0.0666
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "STR-001",
+   "fail": {
+    "deployed": 1,
+    "of": 37,
+    "rate": 0.027,
+    "low": 0.0048,
+    "high": 0.1382
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 21,
+    "rate": 0.0952,
+    "low": 0.0265,
+    "high": 0.2891
+   },
+   "difference": -0.0682,
+   "low": -0.2634,
+   "high": 0.0625,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "STR-002",
+   "fail": {
+    "deployed": 0,
+    "of": 11,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.2588
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 75,
+    "rate": 0.0133,
+    "low": 0.0024,
+    "high": 0.0717
+   },
+   "difference": -0.0133,
+   "low": -0.0717,
+   "high": 0.2457,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-007",
+   "fail": {
+    "deployed": 82,
+    "of": 222,
+    "rate": 0.3694,
+    "low": 0.3086,
+    "high": 0.4346
+   },
+   "pass": {
+    "deployed": 5,
+    "of": 17,
+    "rate": 0.2941,
+    "low": 0.1328,
+    "high": 0.5313
+   },
+   "difference": 0.0753,
+   "low": -0.1696,
+   "high": 0.2492,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-008",
+   "fail": {
+    "deployed": 82,
+    "of": 223,
+    "rate": 0.3677,
+    "low": 0.3072,
+    "high": 0.4327
+   },
+   "pass": {
+    "deployed": 5,
+    "of": 16,
+    "rate": 0.3125,
+    "low": 0.1416,
+    "high": 0.556
+   },
+   "difference": 0.0552,
+   "low": -0.1957,
+   "high": 0.238,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-009",
+   "fail": {
+    "deployed": 84,
+    "of": 226,
+    "rate": 0.3717,
+    "low": 0.3113,
+    "high": 0.4363
+   },
+   "pass": {
+    "deployed": 3,
+    "of": 13,
+    "rate": 0.2308,
+    "low": 0.0818,
+    "high": 0.5026
+   },
+   "difference": 0.1409,
+   "low": -0.1375,
+   "high": 0.3033,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-010",
+   "fail": {
+    "deployed": 55,
+    "of": 138,
+    "rate": 0.3986,
+    "low": 0.3207,
+    "high": 0.4819
+   },
+   "pass": {
+    "deployed": 32,
+    "of": 101,
+    "rate": 0.3168,
+    "low": 0.2342,
+    "high": 0.4129
+   },
+   "difference": 0.0817,
+   "low": -0.0419,
+   "high": 0.1991,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-011",
+   "fail": {
+    "deployed": 0,
+    "of": 16,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.1936
+   },
+   "pass": {
+    "deployed": 87,
+    "of": 223,
+    "rate": 0.3901,
+    "low": 0.3285,
+    "high": 0.4555
+   },
+   "difference": -0.3901,
+   "low": -0.4555,
+   "high": -0.187,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-012",
+   "fail": {
+    "deployed": 82,
+    "of": 226,
+    "rate": 0.3628,
+    "low": 0.3029,
+    "high": 0.4273
+   },
+   "pass": {
+    "deployed": 5,
+    "of": 13,
+    "rate": 0.3846,
+    "low": 0.1771,
+    "high": 0.6448
+   },
+   "difference": -0.0218,
+   "low": -0.2887,
+   "high": 0.1955,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-013",
+   "fail": {
+    "deployed": 84,
+    "of": 227,
+    "rate": 0.37,
+    "low": 0.3099,
+    "high": 0.4345
+   },
+   "pass": {
+    "deployed": 3,
+    "of": 12,
+    "rate": 0.25,
+    "low": 0.0889,
+    "high": 0.5323
+   },
+   "difference": 0.12,
+   "low": -0.1686,
+   "high": 0.2935,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "ENV-003",
+   "fail": {
+    "deployed": 1,
+    "of": 4,
+    "rate": 0.25,
+    "low": 0.0456,
+    "high": 0.6994
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 2,
+    "rate": 0.5,
+    "low": 0.0945,
+    "high": 0.9055
+   },
+   "difference": -0.25,
+   "low": -0.7041,
+   "high": 0.3553,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "ENV-004",
+   "fail": {
+    "deployed": 1,
+    "of": 2,
+    "rate": 0.5,
+    "low": 0.0945,
+    "high": 0.9055
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 6,
+    "rate": 0.3333,
+    "low": 0.0968,
+    "high": 0.7
+   },
+   "difference": 0.1667,
+   "low": -0.38,
+   "high": 0.6361,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "ENV-005",
+   "fail": {
+    "deployed": 14,
+    "of": 31,
+    "rate": 0.4516,
+    "low": 0.2916,
+    "high": 0.6223
+   },
+   "pass": {
+    "deployed": 73,
+    "of": 208,
+    "rate": 0.351,
+    "low": 0.2893,
+    "high": 0.418
+   },
+   "difference": 0.1007,
+   "low": -0.0728,
+   "high": 0.2821,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "GIT-004",
+   "fail": {
+    "deployed": 3,
+    "of": 5,
+    "rate": 0.6,
+    "low": 0.2307,
+    "high": 0.8824
+   },
+   "pass": {
+    "deployed": 84,
+    "of": 234,
+    "rate": 0.359,
+    "low": 0.3002,
+    "high": 0.4223
+   },
+   "difference": 0.241,
+   "low": -0.1336,
+   "high": 0.5294,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "GIT-005",
+   "fail": {
+    "deployed": 3,
+    "of": 5,
+    "rate": 0.6,
+    "low": 0.2307,
+    "high": 0.8824
+   },
+   "pass": {
+    "deployed": 84,
+    "of": 234,
+    "rate": 0.359,
+    "low": 0.3002,
+    "high": 0.4223
+   },
+   "difference": 0.241,
+   "low": -0.1336,
+   "high": 0.5294,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "GIT-006",
+   "fail": {
+    "deployed": 4,
+    "of": 11,
+    "rate": 0.3636,
+    "low": 0.1517,
+    "high": 0.6462
+   },
+   "pass": {
+    "deployed": 83,
+    "of": 228,
+    "rate": 0.364,
+    "low": 0.3043,
+    "high": 0.4283
+   },
+   "difference": -0.0004,
+   "low": -0.2219,
+   "high": 0.2884,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "GIT-007",
+   "fail": {
+    "deployed": 69,
+    "of": 211,
+    "rate": 0.327,
+    "low": 0.2673,
+    "high": 0.3929
+   },
+   "pass": {
+    "deployed": 18,
+    "of": 28,
+    "rate": 0.6429,
+    "low": 0.4583,
+    "high": 0.7929
+   },
+   "difference": -0.3158,
+   "low": -0.4774,
+   "high": -0.1199,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "OBS-005",
+   "fail": {
+    "deployed": 87,
+    "of": 239,
+    "rate": 0.364,
+    "low": 0.3056,
+    "high": 0.4267
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "OBS-006",
+   "fail": {
+    "deployed": 86,
+    "of": 238,
+    "rate": 0.3613,
+    "low": 0.303,
+    "high": 0.4241
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 1,
+    "rate": 1.0,
+    "low": 0.2065,
+    "high": 1.0
+   },
+   "difference": -0.6387,
+   "low": -0.697,
+   "high": 0.1573,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "SCR-003",
+   "fail": {
+    "deployed": 80,
+    "of": 225,
+    "rate": 0.3556,
+    "low": 0.2959,
+    "high": 0.42
+   },
+   "pass": {
+    "deployed": 7,
+    "of": 14,
+    "rate": 0.5,
+    "low": 0.268,
+    "high": 0.732
+   },
+   "difference": -0.1444,
+   "low": -0.384,
+   "high": 0.0964,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "SCR-004",
+   "fail": {
+    "deployed": 16,
+    "of": 56,
+    "rate": 0.2857,
+    "low": 0.1842,
+    "high": 0.4148
+   },
+   "pass": {
+    "deployed": 71,
+    "of": 183,
+    "rate": 0.388,
+    "low": 0.3204,
+    "high": 0.4602
+   },
+   "difference": -0.1023,
+   "low": -0.2269,
+   "high": 0.0434,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "SEC-005",
+   "fail": {
+    "deployed": 87,
+    "of": 238,
+    "rate": 0.3655,
+    "low": 0.3069,
+    "high": 0.4284
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 1,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.7935
+   },
+   "difference": 0.3655,
+   "low": -0.4301,
+   "high": 0.4284,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "SEC-006",
+   "fail": {
+    "deployed": 87,
+    "of": 239,
+    "rate": 0.364,
+    "low": 0.3056,
+    "high": 0.4267
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "STR-003",
+   "fail": {
+    "deployed": 14,
+    "of": 29,
+    "rate": 0.4828,
+    "low": 0.3139,
+    "high": 0.6557
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 2,
+    "rate": 1.0,
+    "low": 0.3424,
+    "high": 1.0
+   },
+   "difference": -0.5172,
+   "low": -0.6861,
+   "high": 0.1627,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "STR-004",
+   "fail": {
+    "deployed": 2,
+    "of": 6,
+    "rate": 0.3333,
+    "low": 0.0968,
+    "high": 0.7
+   },
+   "pass": {
+    "deployed": 6,
+    "of": 8,
+    "rate": 0.75,
+    "low": 0.4093,
+    "high": 0.9285
+   },
+   "difference": -0.4167,
+   "low": -0.713,
+   "high": 0.0839,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  }
+ ],
+ "per_domain": [
+  {
+   "stack": "node_express",
+   "what": "api",
+   "fail": {
+    "deployed": 8,
+    "of": 232,
+    "rate": 0.0345,
+    "low": 0.0176,
+    "high": 0.0666
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "build",
+   "fail": {
+    "deployed": 8,
+    "of": 259,
+    "rate": 0.0309,
+    "low": 0.0157,
+    "high": 0.0598
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "connectivity",
+   "fail": {
+    "deployed": 3,
+    "of": 95,
+    "rate": 0.0316,
+    "low": 0.0108,
+    "high": 0.0888
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 10,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.2775
+   },
+   "difference": 0.0316,
+   "low": -0.2467,
+   "high": 0.0888,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "environment",
+   "fail": {
+    "deployed": 8,
+    "of": 215,
+    "rate": 0.0372,
+    "low": 0.019,
+    "high": 0.0717
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 2,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.6576
+   },
+   "difference": 0.0372,
+   "low": -0.6207,
+   "high": 0.0717,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "git_hygiene",
+   "fail": {
+    "deployed": 7,
+    "of": 190,
+    "rate": 0.0368,
+    "low": 0.018,
+    "high": 0.0741
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 69,
+    "rate": 0.0145,
+    "low": 0.0026,
+    "high": 0.0776
+   },
+   "difference": 0.0223,
+   "low": -0.0436,
+   "high": 0.0615,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "observability",
+   "fail": {
+    "deployed": 8,
+    "of": 233,
+    "rate": 0.0343,
+    "low": 0.0175,
+    "high": 0.0663
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "secrets",
+   "fail": {
+    "deployed": 8,
+    "of": 257,
+    "rate": 0.0311,
+    "low": 0.0159,
+    "high": 0.0602
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 2,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.6576
+   },
+   "difference": 0.0311,
+   "low": -0.6267,
+   "high": 0.0602,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "security",
+   "fail": {
+    "deployed": 8,
+    "of": 259,
+    "rate": 0.0309,
+    "low": 0.0157,
+    "high": 0.0598
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "structure",
+   "fail": {
+    "deployed": 1,
+    "of": 47,
+    "rate": 0.0213,
+    "low": 0.0038,
+    "high": 0.1111
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 10,
+    "rate": 0.1,
+    "low": 0.0179,
+    "high": 0.4042
+   },
+   "difference": -0.0787,
+   "low": -0.3834,
+   "high": 0.043,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "build",
+   "fail": {
+    "deployed": 85,
+    "of": 236,
+    "rate": 0.3602,
+    "low": 0.3016,
+    "high": 0.4232
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 3,
+    "rate": 0.6667,
+    "low": 0.2077,
+    "high": 0.9385
+   },
+   "difference": -0.3065,
+   "low": -0.5846,
+   "high": 0.1568,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "environment",
+   "fail": {
+    "deployed": 14,
+    "of": 32,
+    "rate": 0.4375,
+    "low": 0.2817,
+    "high": 0.6067
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "git_hygiene",
+   "fail": {
+    "deployed": 73,
+    "of": 215,
+    "rate": 0.3395,
+    "low": 0.2795,
+    "high": 0.4052
+   },
+   "pass": {
+    "deployed": 14,
+    "of": 24,
+    "rate": 0.5833,
+    "low": 0.3883,
+    "high": 0.7553
+   },
+   "difference": -0.2438,
+   "low": -0.426,
+   "high": -0.0381,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "observability",
+   "fail": {
+    "deployed": 87,
+    "of": 239,
+    "rate": 0.364,
+    "low": 0.3056,
+    "high": 0.4267
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "secrets",
+   "fail": {
+    "deployed": 82,
+    "of": 230,
+    "rate": 0.3565,
+    "low": 0.2974,
+    "high": 0.4203
+   },
+   "pass": {
+    "deployed": 5,
+    "of": 9,
+    "rate": 0.5556,
+    "low": 0.2667,
+    "high": 0.8112
+   },
+   "difference": -0.199,
+   "low": -0.4614,
+   "high": 0.0968,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "security",
+   "fail": {
+    "deployed": 87,
+    "of": 239,
+    "rate": 0.364,
+    "low": 0.3056,
+    "high": 0.4267
+   },
+   "pass": {
+    "deployed": 0,
+    "of": 0,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.0
+   },
+   "difference": 0.0,
+   "low": 0.0,
+   "high": 0.0,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "structure",
+   "fail": {
+    "deployed": 15,
+    "of": 30,
+    "rate": 0.5,
+    "low": 0.3315,
+    "high": 0.6685
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 1,
+    "rate": 1.0,
+    "low": 0.2065,
+    "high": 1.0
+   },
+   "difference": -0.5,
+   "low": -0.6685,
+   "high": 0.3111,
+   "excludes_zero": false,
+   "excludes_zero_corrected": false
+  }
+ ],
+ "rule_tests": 50,
+ "expected_chance_flags": 2.5,
+ "flagged_rules": [
+  {
+   "stack": "node_express",
+   "what": "API-001",
+   "fail": {
+    "deployed": 7,
+    "of": 228,
+    "rate": 0.0307,
+    "low": 0.0149,
+    "high": 0.062
+   },
+   "pass": {
+    "deployed": 1,
+    "of": 5,
+    "rate": 0.2,
+    "low": 0.0362,
+    "high": 0.6245
+   },
+   "difference": -0.1693,
+   "low": -0.5941,
+   "high": -0.0026,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-001",
+   "fail": {
+    "deployed": 3,
+    "of": 223,
+    "rate": 0.0135,
+    "low": 0.0046,
+    "high": 0.0388
+   },
+   "pass": {
+    "deployed": 5,
+    "of": 36,
+    "rate": 0.1389,
+    "low": 0.0608,
+    "high": 0.2866
+   },
+   "difference": -0.1254,
+   "low": -0.2734,
+   "high": -0.0434,
+   "excludes_zero": true,
+   "excludes_zero_corrected": true
+  },
+  {
+   "stack": "node_express",
+   "what": "BLD-004",
+   "fail": {
+    "deployed": 1,
+    "of": 142,
+    "rate": 0.007,
+    "low": 0.0012,
+    "high": 0.0388
+   },
+   "pass": {
+    "deployed": 7,
+    "of": 117,
+    "rate": 0.0598,
+    "low": 0.0293,
+    "high": 0.1184
+   },
+   "difference": -0.0528,
+   "low": -0.1116,
+   "high": -0.0087,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "node_express",
+   "what": "OBS-001",
+   "fail": {
+    "deployed": 4,
+    "of": 165,
+    "rate": 0.0242,
+    "low": 0.0095,
+    "high": 0.0607
+   },
+   "pass": {
+    "deployed": 3,
+    "of": 7,
+    "rate": 0.4286,
+    "low": 0.1582,
+    "high": 0.7495
+   },
+   "difference": -0.4043,
+   "low": -0.7256,
+   "high": -0.1315,
+   "excludes_zero": true,
+   "excludes_zero_corrected": true
+  },
+  {
+   "stack": "node_express",
+   "what": "SEC-001",
+   "fail": {
+    "deployed": 6,
+    "of": 252,
+    "rate": 0.0238,
+    "low": 0.011,
+    "high": 0.051
+   },
+   "pass": {
+    "deployed": 2,
+    "of": 7,
+    "rate": 0.2857,
+    "low": 0.0822,
+    "high": 0.6411
+   },
+   "difference": -0.2619,
+   "low": -0.6175,
+   "high": -0.0566,
+   "excludes_zero": true,
+   "excludes_zero_corrected": true
+  },
+  {
+   "stack": "react_vite",
+   "what": "BLD-011",
+   "fail": {
+    "deployed": 0,
+    "of": 16,
+    "rate": 0.0,
+    "low": 0.0,
+    "high": 0.1936
+   },
+   "pass": {
+    "deployed": 87,
+    "of": 223,
+    "rate": 0.3901,
+    "low": 0.3285,
+    "high": 0.4555
+   },
+   "difference": -0.3901,
+   "low": -0.4555,
+   "high": -0.187,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  },
+  {
+   "stack": "react_vite",
+   "what": "GIT-007",
+   "fail": {
+    "deployed": 69,
+    "of": 211,
+    "rate": 0.327,
+    "low": 0.2673,
+    "high": 0.3929
+   },
+   "pass": {
+    "deployed": 18,
+    "of": 28,
+    "rate": 0.6429,
+    "low": 0.4583,
+    "high": 0.7929
+   },
+   "difference": -0.3158,
+   "low": -0.4774,
+   "high": -0.1199,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  }
+ ],
+ "flagged_domains": [
+  {
+   "stack": "react_vite",
+   "what": "git_hygiene",
+   "fail": {
+    "deployed": 73,
+    "of": 215,
+    "rate": 0.3395,
+    "low": 0.2795,
+    "high": 0.4052
+   },
+   "pass": {
+    "deployed": 14,
+    "of": 24,
+    "rate": 0.5833,
+    "low": 0.3883,
+    "high": 0.7553
+   },
+   "difference": -0.2438,
+   "low": -0.426,
+   "high": -0.0381,
+   "excludes_zero": true,
+   "excludes_zero_corrected": false
+  }
+ ],
+ "negatives": {
+  "paired": 163,
+  "unchanged": 153,
+  "deployed_to_failed": 10,
+  "failed_to_deployed": 0,
+  "both_failed": 129,
+  "both_deployed": 24,
+  "by_rule": {
+   "BLD-001": {
+    "paired": 2,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 0
+   },
+   "BLD-002": {
+    "paired": 1,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 0
+   },
+   "BLD-003": {
+    "paired": 5,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 0
+   },
+   "BLD-004": {
+    "paired": 6,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 0
+   },
+   "BLD-005": {
+    "paired": 3,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 0
+   },
+   "BLD-007": {
+    "paired": 1,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 0
+   },
+   "BLD-008": {
+    "paired": 3,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 1
+   },
+   "BLD-010": {
+    "paired": 10,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 2
+   },
+   "BLD-011": {
+    "paired": 29,
+    "deployed_to_failed": 9,
+    "failed_to_deployed": 0,
+    "source_deployed": 9
+   },
+   "BLD-013": {
+    "paired": 1,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 0
+   },
+   "GIT-002": {
+    "paired": 19,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 1
+   },
+   "GIT-005": {
+    "paired": 21,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 5
+   },
+   "GIT-006": {
+    "paired": 19,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 5
+   },
+   "SCR-002": {
+    "paired": 20,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 1
+   },
+   "SCR-003": {
+    "paired": 1,
+    "deployed_to_failed": 0,
+    "failed_to_deployed": 0,
+    "source_deployed": 1
+   },
+   "SCR-004": {
+    "paired": 22,
+    "deployed_to_failed": 1,
+    "failed_to_deployed": 0,
+    "source_deployed": 9
+   }
+  }
+ },
+ "built_not_deployed": {
+  "node_express_negative": {
+   "Render reported the deploy failed": 36,
+   "went live, health path never answered": 4,
+   "timed out while Render was building": 1
+  },
+  "node_express_real": {
+   "Render reported the deploy failed": 151,
+   "went live, health path never answered": 34,
+   "timed out while Render was building": 8
+  },
+  "react_vite_negative": {
+   "Render reported the deploy failed": 16,
+   "went live, health path never answered": 4
+  },
+  "react_vite_real": {
+   "Render reported the deploy failed": 37,
+   "went live, health path never answered": 9
+  }
+ },
+ "logs": "Render build and runtime logs were not stored at labelling time, and every service was deleted after labelling, so causes are reported by stage."
+}
