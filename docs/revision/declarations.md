@@ -40,7 +40,7 @@ themselves are not redistributed; each can be retrieved at its recorded commit.
 
 ProdPilot is available at https://github.com/prodpilotai/ProdPilot under the MIT
 licence and as the `prodpilot` package on PyPI, version 1.0.0. The revised
-experiments were run at the commit tagged [tag], and every number in the paper
+experiments were run at the commit tagged revision-2026-09-29, and every number in the paper
 is produced by a script listed in the bundle's README.
 
 ## Author contributions
