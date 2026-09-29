@@ -1,0 +1,169 @@
+{
+ "samples": [
+  {
+   "sample": "amb_two_drivers",
+   "audit_seconds": 0.095,
+   "issues": 21,
+   "cycle_seconds": 3.851,
+   "contracts": 24
+  },
+  {
+   "sample": "amb_two_entries",
+   "audit_seconds": 0.278,
+   "issues": 16,
+   "cycle_seconds": 9.017,
+   "contracts": 29
+  },
+  {
+   "sample": "amb_two_lockfiles",
+   "audit_seconds": 0.167,
+   "issues": 16,
+   "cycle_seconds": 2.9,
+   "contracts": 17
+  },
+  {
+   "sample": "amb_two_roots",
+   "audit_seconds": 0.148,
+   "issues": 17,
+   "cycle_seconds": 3.364,
+   "contracts": 20
+  },
+  {
+   "sample": "amb_unnamed_secret",
+   "audit_seconds": 0.148,
+   "issues": 22,
+   "cycle_seconds": 4.82,
+   "contracts": 27
+  },
+  {
+   "sample": "ambiguous_fullstack",
+   "audit_seconds": 0.002,
+   "issues": 0
+  },
+  {
+   "sample": "docker_ok",
+   "audit_seconds": 0.16,
+   "issues": 7,
+   "cycle_seconds": 1.344,
+   "contracts": 9
+  },
+  {
+   "sample": "node_express_api",
+   "audit_seconds": 0.139,
+   "issues": 20,
+   "cycle_seconds": 4.472,
+   "contracts": 24
+  },
+  {
+   "sample": "node_express_gated",
+   "audit_seconds": 0.229,
+   "issues": 0
+  },
+  {
+   "sample": "node_express_hardened",
+   "audit_seconds": 0.419,
+   "issues": 8,
+   "cycle_seconds": 3.321,
+   "contracts": 12
+  },
+  {
+   "sample": "node_express_insecure",
+   "audit_seconds": 0.375,
+   "issues": 22,
+   "cycle_seconds": 11.94,
+   "contracts": 32
+  },
+  {
+   "sample": "node_express_ready",
+   "audit_seconds": 0.131,
+   "issues": 9,
+   "cycle_seconds": 1.833,
+   "contracts": 8
+  },
+  {
+   "sample": "node_express_secrets",
+   "audit_seconds": 0.104,
+   "issues": 12,
+   "cycle_seconds": 1.88,
+   "contracts": 17
+  },
+  {
+   "sample": "node_express_secure",
+   "audit_seconds": 0.373,
+   "issues": 15,
+   "cycle_seconds": 8.158,
+   "contracts": 19
+  },
+  {
+   "sample": "node_express_wildcard",
+   "audit_seconds": 0.153,
+   "issues": 21,
+   "cycle_seconds": 4.168,
+   "contracts": 27
+  },
+  {
+   "sample": "react_vite_app",
+   "audit_seconds": 0.166,
+   "issues": 15,
+   "cycle_seconds": 2.115,
+   "contracts": 23
+  },
+  {
+   "sample": "react_vite_hardened",
+   "audit_seconds": 0.312,
+   "issues": 14,
+   "cycle_seconds": 3.144,
+   "contracts": 20
+  },
+  {
+   "sample": "react_vite_noroute",
+   "audit_seconds": 0.17,
+   "issues": 15,
+   "cycle_seconds": 2.2,
+   "contracts": 23
+  },
+  {
+   "sample": "react_vite_ready",
+   "audit_seconds": 0.2,
+   "issues": 1,
+   "cycle_seconds": 0.724,
+   "contracts": 3
+  },
+  {
+   "sample": "react_vite_ts_config",
+   "audit_seconds": 0.078,
+   "issues": 14,
+   "cycle_seconds": 0.723,
+   "contracts": 20
+  },
+  {
+   "sample": "unrecognized_python_service",
+   "audit_seconds": 0.002,
+   "issues": 0
+  },
+  {
+   "sample": "vite_without_react",
+   "audit_seconds": 0.002,
+   "issues": 0
+  }
+ ],
+ "audit": {
+  "samples": 22,
+  "median": 0.16,
+  "min": 0.0,
+  "max": 0.42
+ },
+ "cycle": {
+  "samples": 18,
+  "median": 3.23,
+  "min": 0.72,
+  "max": 11.94
+ },
+ "whole_chain_recorded": {
+  "samples": 23,
+  "median": 16.0,
+  "min": 0.4,
+  "max": 58.1
+ },
+ "note": "Gate build and ProdPush stage 3 need Docker; they are inside the whole-chain times recorded by tests/pipeline.py."
+}
