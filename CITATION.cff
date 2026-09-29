@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: "If you use ProdPilot or its dataset, please cite it as below."
+title: "ProdPilot"
+abstract: >-
+  A local Model Context Protocol server that audits Node.js and React
+  projects against 50 production readiness rules, repairs violations through
+  a bounded loop with independent verification, gates the result with a
+  deployability model trained on real deployment outcomes, and deploys it.
+type: software
+version: 1.0.0
+date-released: 2026-09-20
+license: MIT
+repository-code: "https://github.com/prodpilotai/ProdPilot"
+keywords:
+  - production readiness
+  - automated program repair
+  - Model Context Protocol
+  - deployability prediction
+  - DevOps
+  - static analysis
+authors:
+  - family-names: Khalid
+    given-names: Muhammad Sudais
+    affiliation: >-
+      Artificial Intelligence Technology Centre (AITeC), National Centre for
+      Physics (NCP); Department of Artificial Intelligence, Shifa
+      Tameer-e-Millat University
+  - family-names: Asif
+    given-names: Muhammad Junaid
+    affiliation: >-
+      Artificial Intelligence Technology Centre (AITeC), National Centre for
+      Physics (NCP); Department of Artificial Intelligence, Shifa
+      Tameer-e-Millat University
+  - family-names: Abbasi
+    given-names: Rehan Naveed
+    affiliation: "Department of Artificial Intelligence, Shifa Tameer-e-Millat University"
+  - family-names: Ahmad
+    given-names: Rana Fayyaz
+    affiliation: >-
+      Artificial Intelligence Technology Centre (AITeC), National Centre for
+      Physics (NCP); Department of Artificial Intelligence, Shifa
+      Tameer-e-Millat University
