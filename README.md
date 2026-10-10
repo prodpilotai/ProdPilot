@@ -144,6 +144,10 @@ live URL and a GitHub Actions workflow that redeploys on every push and checks
 the service afterwards. A small Express API that the fix loop took from 69 to
 100 went live on Render this way, all nine stages passing, in 82 seconds.
 
+Deploying again goes to the same service. If the new deploy then fails its
+smoke test, ProdPilot rolls the service back to the previous version and says
+so; `--no-rollback` turns that off. See [docs/rollback.md](docs/rollback.md).
+
 ### When something is refused
 
 ProdPilot always says which condition failed. These are real messages:
@@ -205,6 +209,8 @@ The commands you run:
 | `prodpilot serve` | Starts the MCP server over stdio; your IDE runs this for you |
 | `prodpilot audit [PROJECT] [--ci] [--min-score N] [--fail-on p0\|p1\|none] [--baseline REF]` | Audits read-only and exits 0, 1 or 2 for CI |
 | `prodpilot report --format sarif\|md\|html --out PATH [PROJECT]` | Writes a SARIF, Markdown or HTML report of the audit |
+| `prodpilot fix --dry-run [PROJECT] [--rule ID]` | Shows the fix loop's changes as diffs, in loop order, and writes nothing |
+| `prodpilot deploy [PROJECT] [--no-rollback]` | Runs the nine deploy stages, as `prodpilot_deploy` does |
 
 ## How it works
 
@@ -248,18 +254,27 @@ Report a vulnerability privately as described in [SECURITY.md](SECURITY.md).
   the Docker build during the deploy catches it and names the missing module.
 - Render's own automatic deploy stays on, so a push can start a second deploy
   beside the workflow's; the workflow waits for the newer one.
-- This is a beta. Not yet observed on real services: a deploy started by an IDE
-  agent, the generated workflow running on GitHub Actions, and `prodpilot
-  connect` inside Cursor and Devin.
+- Rolling back needs Render to still hold the earlier build, which it keeps for
+  a limited number of recent deploys.
+- Generated files pin Node 24 unless the project declares a supported LTS line,
+  while rule BLD-005 still asks for a Node 20 pin; see
+  [docs/node-versions.md](docs/node-versions.md).
+- Not yet observed on real services: a deploy started by an IDE agent, and
+  `prodpilot connect` inside Cursor and Devin. The generated workflow has run on
+  GitHub Actions against a live service; see
+  [docs/releases/1.1.0-verification.md](docs/releases/1.1.0-verification.md).
 
-## What's in 1.0.0
+## What's new in 1.1
 
-- The deployability model ships inside the package.
-- `prodpilot connect` sets up VS Code, Cursor and Devin in one command.
-- `prodpilot doctor` checks git, Node.js and Docker.
-- The generated CI/CD workflow waits for its own deploy before checking the
-  service.
-- Runs on Python 3.11 to 3.14.
+- A GitHub Action and `prodpilot audit --ci` for checking readiness in CI, with
+  a baseline comparison for pull requests.
+- `prodpilot report` writes SARIF for GitHub code scanning, Markdown and HTML.
+- `prodpilot fix --dry-run` previews every change as a diff before your agent
+  makes it.
+- A deploy that fails its smoke test is rolled back to the previous version.
+- Generated Dockerfiles and workflows follow the project's declared Node LTS
+  line, Node 24 by default, and end-of-life Node versions are flagged.
+- The ruleset, scoring, model and gate are unchanged from 1.0.0.
 
 The full list is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -272,6 +287,11 @@ The full list is in [CHANGELOG.md](CHANGELOG.md).
 - [Measured fix reliability](docs/metrics.md)
 - [The deployability model's evaluation](docs/evaluation.md)
 - [What 1.x keeps stable](docs/stability.md)
+- [ProdPilot in CI: the GitHub Action, audit and report](docs/github-action.md)
+- [Previewing fixes with --dry-run](docs/dry-run.md)
+- [Redeploys and rollback](docs/rollback.md)
+- [Node.js versions](docs/node-versions.md)
+- [1.1.0 verification record](docs/releases/1.1.0-verification.md)
 
 ## Contributing
 

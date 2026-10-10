@@ -12,16 +12,21 @@ their results carry:
 | --- | --- |
 | `prodpilot_ping` | Name, and that it answers without touching the project |
 | `prodpilot_detect_stack` | `project_path`; the returned stack name and blueprint items |
-| `prodpilot_fix_instruction` | `project_path` and `rule_id`; the contract's `action`, `file_path` and, for a delegated fix, `requirement`, `boundary` and `forbidden` |
+| `prodpilot_fix_instruction` | `project_path`, `rule_id` and, since 1.1, the optional `dry_run`; the contract's `action`, `file_path` and, for a delegated fix, `requirement`, `boundary` and `forbidden` |
 | `prodpilot_fix_applied` | `project_path`, `rule_id`, `applied`, `summary`, `attempt`; the outcomes `resolved`, `unresolved` and `blocked`, and the `verified` and `regressed` fields |
-| `prodpilot_deploy` | `project_path`; the nine stages, in order, each reporting pass or failure with a reason |
+| `prodpilot_deploy` | `project_path` and, since 1.1, the optional `rollback`; the nine stages, in order, each reporting pass or failure with a reason |
 
 **Rule identifiers.** A rule keeps its identifier and its meaning. `SEC-002`
 will always be the security headers rule. A rule may get better at finding a
 violation, but it will not be renumbered or quietly repurposed.
 
 **The commands and their flags.** `prodpilot serve`, `setup`, `doctor` and
-`connect`, and the flags they take today.
+`connect` from 1.0, and `audit`, `report`, `fix --dry-run` and `deploy` from
+1.1, with the flags they take. The exit codes of `audit`, 0 passed, 1 failed and
+2 for a tool or usage error, are part of the promise.
+
+**The GitHub Action's inputs.** `version`, `path`, `min-score`, `fail-on`,
+`baseline` and `sarif`, and the `exit-code` output.
 
 **Where your credentials live.** `~/.prodpilot/config.toml`, readable only by
 your account, and never inside a project.
@@ -36,7 +41,11 @@ not drop one.
 
 - **The score a given project receives.** Rules improve, so a project may
   score differently between releases. The gate's three conditions stay the
-  same; what a rule detects can get sharper.
+  same; what a rule detects can get sharper. Release 1.1 changed no rule, score
+  or gate decision, and its tests hold all three to their 1.0.0 values.
+- **Generated content.** The exact Dockerfile, workflow or other file a fix
+  produces may change, as 1.1 did when the default Node version moved from 20
+  to 24.
 - **The number of rules.** Version 1.0 has 50. A minor release may add more.
 - **The deployability model.** It may be retrained, which changes its estimates
   and its operating point.

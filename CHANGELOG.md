@@ -1,5 +1,65 @@
 # Changelog
 
+## 1.1.0, unreleased
+
+A hardening release. It adds tooling around ProdPilot and changes nothing about
+how a project is judged: the ruleset, the scoring weights and bands, the shipped
+model and its scikit-learn pin, and the gate's three conditions are unchanged
+from 1.0.0, and tests now hold each of them to its 1.0.0 value.
+
+### Added
+
+- `prodpilot audit` for CI, with `--ci`, `--min-score`, `--fail-on p0|p1|none`
+  and `--baseline <git-ref>`. It exits 0 when the project passes, 1 when it does
+  not and 2 for a tool or usage error. The baseline is audited in a temporary
+  worktree that is always removed, and a rule that regressed fails the check
+  even when the score rose. See [docs/github-action.md](docs/github-action.md).
+- `prodpilot report --format sarif|md|html`. The SARIF 2.1.0 log describes all
+  50 rules, has stable fingerprints for GitHub code scanning and is validated
+  against the official schema in the tests. The HTML is one self-contained file.
+  No format prints a credential.
+- A GitHub Action, `prodpilotai/ProdPilot@v1`, that uploads the SARIF report to
+  code scanning, writes the Markdown report to the job summary and fails the job
+  when the project is not ready. It needs no secret, and a self-test workflow
+  runs it on Linux, macOS and Windows.
+- `prodpilot fix --dry-run [--rule ID]`, a preview of the fix loop's changes as
+  unified diffs in loop order, and an optional `dry_run` input on
+  `prodpilot_fix_instruction`. See [docs/dry-run.md](docs/dry-run.md).
+- `prodpilot deploy [--no-rollback]`, which runs the nine deploy stages from a
+  terminal, and an optional `rollback` input on `prodpilot_deploy`.
+- Rollback after a failed smoke test: a redeployed service is rolled back to its
+  previous live deploy of a different commit, monitored and health checked
+  again. See [docs/rollback.md](docs/rollback.md).
+- The declared Node version, read where Render reads it, in the detection
+  tool's blueprint, and an end-of-life notice in the audit and every report that
+  never changes the score or the gate. See
+  [docs/node-versions.md](docs/node-versions.md).
+- Guard tests for the frozen core, the 1.0.0 interface and the behaviour of all
+  22 sample projects.
+
+### Changed
+
+- Rollback is on by default. `--no-rollback`, or `rollback: false` on the deploy
+  tool, keeps 1.0.0's behaviour of leaving a failed deploy in place.
+- A project already deployed by ProdPilot is redeployed to the service recorded
+  in `.env.prodpilot` rather than given a second service.
+- Generated Dockerfiles and CI workflows use the project's declared Node major
+  when it is 20, 22, 24 or 26, and Node 24 otherwise, instead of Node 20, which
+  reached end of life on 30 April 2026. The version is read in Render's order:
+  `NODE_VERSION` in `.env`, `.node-version`, `.nvmrc`, then `engines.node`. A
+  range spanning several majors, or with no upper bound, refuses and lists its
+  candidates. Rule outcomes, scores and gate decisions are unchanged.
+- The contract executor the tests used moved into the package as
+  `prodpilot.applying`, so the dry-run preview applies changes the same way.
+
+### Fixed
+
+- A second deploy of a project stopped at the push stage when the only untracked
+  file was ProdPilot's own `.env.prodpilot`, because git reported "nothing added
+  to commit" in words the push stage did not recognise.
+- The 1.0.0 package reported its version as 1.0.0rc1. The version now has one
+  source, `prodpilot/__init__.py`.
+
 ## 1.0.0, 20 September 2026
 
 The first stable release. What changed is what the project now promises, how
