@@ -359,7 +359,10 @@ class Render:
 
         Never guessed: it is the newest deploy created before deploy_id whose
         state is live or deactivated, the two states of a deploy that once
-        served. None when the service has no such deploy.
+        served, and which built a different commit. A push can start several
+        deploys of the same commit, from autodeploy, a workflow and ProdPush
+        itself, and rolling back to one of those would restore the very code
+        that failed. None when the service has no such deploy.
         """
         listed = self.deploys(service_id)
         current = next((d for d in listed if d.get("id") == deploy_id), None)
@@ -367,8 +370,10 @@ class Render:
             raise RenderError(f"deploy {deploy_id} is not among the recent deploys of "
                               f"{service_id}, so the deploy before it cannot be identified")
         cutoff = created_at(current)
+        broken = commit_of(current)
         earlier = [d for d in listed if d.get("id") != deploy_id
-                   and d.get("status") in SERVED and created_at(d) < cutoff]
+                   and d.get("status") in SERVED and created_at(d) < cutoff
+                   and not (broken and commit_of(d) == broken)]
         if not earlier:
             return None
         return str(max(earlier, key=created_at)["id"])
@@ -439,6 +444,12 @@ def created_at(deploy: Mapping) -> float:
         return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
     except ValueError as exc:
         raise RenderError(f"deploy {deploy.get('id')} has no readable createdAt: {stamp}") from exc
+
+
+def commit_of(deploy: Mapping) -> str:
+    """The commit a deploy built, or empty when Render did not say."""
+    found = deploy.get("commit")
+    return str(found.get("id") or "") if isinstance(found, Mapping) else ""
 
 
 def live_url(created: Mapping) -> str:

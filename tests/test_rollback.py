@@ -26,9 +26,12 @@ def stamp(seconds_ago: float) -> str:
     return datetime.fromtimestamp(time.time() - seconds_ago, tz=timezone.utc).isoformat()
 
 
-def deploy(ident: str, status: str, seconds_ago: float, trigger: str = "api") -> dict:
-    return {"cursor": ident, "deploy": {"id": ident, "status": status, "trigger": trigger,
-                                         "createdAt": stamp(seconds_ago)}}
+def deploy(ident: str, status: str, seconds_ago: float, trigger: str = "api",
+           commit: str = "") -> dict:
+    body = {"id": ident, "status": status, "trigger": trigger, "createdAt": stamp(seconds_ago)}
+    if commit:
+        body["commit"] = {"id": commit, "message": "a change"}
+    return {"cursor": ident, "deploy": body}
 
 
 class Api:
@@ -138,6 +141,17 @@ def test_the_previous_live_deploy_is_the_newest_that_served_before_the_current_o
         deploy("dep-older", "deactivated", 7200),
     ])})
     assert made.previous_live(SERVICE, "dep-broken") == "dep-good"
+
+
+def test_an_earlier_deploy_of_the_same_broken_commit_is_skipped():
+    """Autodeploy and a workflow can deploy the commit that failed before ProdPush did."""
+    made, _ = render({("GET", f"/services/{SERVICE}/deploys"): (200, [
+        deploy("dep-ours", "live", 30, commit="bad1234"),
+        deploy("dep-workflow", "deactivated", 90, commit="bad1234"),
+        deploy("dep-auto", "deactivated", 120, trigger="new_commit", commit="bad1234"),
+        deploy("dep-good", "deactivated", 3600, commit="good567"),
+    ])})
+    assert made.previous_live(SERVICE, "dep-ours") == "dep-good"
 
 
 def test_a_first_deploy_has_no_previous_live_deploy():
