@@ -4,6 +4,9 @@ This package is built in the phase order defined by the Phased Implementation
 Plan. The current build covers Phase 1 module 1.1, the MCP server skeleton.
 """
 
-__version__ = "1.0.0rc1"
+# The single source of the version. pyproject.toml reads it through hatchling,
+# the release workflow checks the tag against it, and a test holds the GitHub
+# Action's default version to it.
+__version__ = "1.1.0rc1"
 
 __all__ = ["__version__"]
