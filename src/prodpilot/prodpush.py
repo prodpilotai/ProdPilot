@@ -58,6 +58,27 @@ smoke test for doing what the audit asked. The smoke test is therefore pointed
 at the project's first versioned route, read from the same mounts the audit
 checks. A built front end has no API of its own and is asked for its root.
 
+Redeploying and rolling back, added in 1.1
+-----------------------------------------
+A project whose .env.prodpilot names a service that still exists on Render is
+deployed to that service rather than given a second one. Its environment values
+on Render are left as they are; a new service is created with the sealed values,
+as in 1.0.0.
+
+When the smoke test fails on such a redeploy, the service is rolled back to the
+last deploy that was live before it, which the provider reads from its own deploy
+list. The rollback is monitored like any deploy, the health check is run again,
+and the report gives both the original failure and what the rollback did. A
+service's first deploy has no earlier version, so nothing is rolled back and the
+report says so. A rollback that fails or times out stops the run with both
+failures and the dashboard address; it is never retried. CI/CD wiring does not
+run after a failed smoke test, rolled back or not. Rollback is on by default;
+rollback=False keeps 1.0.0's behaviour of leaving the failed deploy in place.
+
+The rollback needs a provider offering the optional Rollback capability, and the
+redeploy the Redeploy capability, both in module provider. A provider without
+them works exactly as in 1.0.0.
+
 Everything outside ProdPilot is injectable, as in every stage module: the
 provider, the HTTP transports for the deployed service and for GitHub, the local
 build, which needs a Docker daemon, and the clock. Tests run the whole pipeline
@@ -77,7 +98,7 @@ from pathlib import Path
 from prodpilot import (buildtest, cicd, extraction, gate, labels, monitor,
                        preflight, projectstate, push, reaudit, render, sealing,
                        smoke)
-from prodpilot.provider import Service
+from prodpilot.provider import Redeploy, Rollback, Service
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +142,8 @@ class Ship:
     steps: tuple[Step, ...] = field(default_factory=tuple)
     url: str = ""
     service_id: str = ""
+    # What happened after a failed smoke test, when anything was tried.
+    rollback: dict = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -142,6 +165,7 @@ class Ship:
             "service_id": self.service_id,
             "failed_stage": failed.stage.value if failed else None,
             "steps": [s.to_dict() for s in self.steps],
+            "rollback": dict(self.rollback) or None,
         }
 
     def summary(self) -> str:
@@ -188,21 +212,83 @@ def route(root: Path, stack: str) -> str:
     return smoke.API
 
 
+def dashboard(service_id: str, stack: str) -> str:
+    """Where a person can look at the service on Render."""
+    kind = "static" if stack == "react_vite" else "web"
+    return f"https://dashboard.render.com/{kind}/{service_id}"
+
+
+def recover(target, made, redeployed: bool, enabled: bool, stack: str, health: str,
+            fetch: smoke.Fetch, sleep: Callable[[float], None],
+            clock: Callable[[], float]) -> dict:
+    """What to do after a failed smoke test, done once and reported.
+
+    Never raises and never retries: every outcome comes back as a record whose
+    detail is appended to the smoke test's own report.
+    """
+    if not enabled:
+        return {}
+    where = dashboard(made.service_id, stack)
+    if not redeployed:
+        return {"outcome": "first_deploy",
+                "detail": "This was the service's first deploy, so there was no earlier "
+                          "version to roll back to."}
+    if not isinstance(target, Rollback):
+        return {"outcome": "unsupported",
+                "detail": "The provider cannot roll back, so the failed deploy is still live."}
+    try:
+        previous = target.previous_live(made.service_id, made.deploy_id)
+    except Exception as exc:
+        return {"outcome": "rollback_failed",
+                "detail": f"The deploy before it could not be found, so nothing was rolled "
+                          f"back: {type(exc).__name__}: {exc}. Check the service at {where}"}
+    if previous is None:
+        return {"outcome": "no_previous",
+                "detail": "No earlier deploy of this service was live, so there was "
+                          "nothing to roll back to."}
+    started = clock()
+    try:
+        back = target.rollback(made.service_id, previous)
+    except Exception as exc:
+        return {"outcome": "rollback_failed", "to": previous,
+                "detail": f"Rolling back to deploy {previous} failed too: "
+                          f"{type(exc).__name__}: {exc}. Check the service at {where}"}
+    watched = monitor.watch(target, f"{made.service_id}/{back}", sleep=sleep, clock=clock)
+    if not watched.ok:
+        return {"outcome": "rollback_failed", "to": previous, "deploy": back,
+                "detail": f"The rollback to deploy {previous} did not go live: "
+                          f"{watched.summary()}. Check the service at {where}"}
+    probe, _, _, _ = smoke.probe(fetch, made.url, sleep=sleep, clock=clock, path=health)
+    seconds = round(clock() - started, 1)
+    if not probe.ok:
+        return {"outcome": "health_failed", "to": previous, "deploy": back,
+                "seconds": seconds,
+                "detail": f"Rolled back to deploy {previous}, which is live again, but "
+                          f"{health} still does not answer: {probe.detail}. Check the "
+                          f"service at {where}"}
+    return {"outcome": "restored", "to": previous, "deploy": back, "seconds": seconds,
+            "detail": f"Rolled back to deploy {previous}, which is live again and "
+                      f"answers {health} ({probe.detail}). The failed deploy is no longer "
+                      f"serving."}
+
+
 def run(root: str | Path, branch: str = "main", provider=None,
         fetch: smoke.Fetch = smoke.send, github: cicd.Fetch = cicd.send,
         token: str | None = None,
         build: Callable[..., buildtest.Build] = buildtest.run,
         sleep: Callable[[float], None] = time.sleep,
-        clock: Callable[[], float] = time.monotonic) -> Ship:
+        clock: Callable[[], float] = time.monotonic,
+        rollback: bool = True) -> Ship:
     """Take a project from the scoring gate to a live, wired deployment.
 
     Never raises for anything a project can do wrong. A caller reads the steps
-    to tell a developer how far it got and why it stopped.
+    to tell a developer how far it got and why it stopped. rollback=False keeps
+    1.0.0's behaviour after a failed smoke test.
     """
     base = Path(root)
     name = base.name or str(base)
     steps: list[Step] = []
-    place = {"url": "", "service": ""}
+    place: dict = {"url": "", "service": "", "rollback": {}}
 
     def done(stage: Stage, detail: str, ran: bool = True) -> None:
         steps.append(Step(stage, True, detail, ran))
@@ -212,7 +298,7 @@ def run(root: str | Path, branch: str = "main", provider=None,
         steps.append(Step(stage, False, detail))
         for later in ORDER[len(steps):]:
             steps.append(Step(later, False, "not reached", ran=False))
-        result = Ship(name, tuple(steps), place["url"], place["service"])
+        result = Ship(name, tuple(steps), place["url"], place["service"], place["rollback"])
         logger.warning("%s", result.summary())
         return result
 
@@ -266,16 +352,31 @@ def run(root: str | Path, branch: str = "main", provider=None,
     if not repo:
         return stop(Stage.DEPLOY, "the origin remote does not name a GitHub repository")
     build, start, publish, answers = labels.serves(stack)
+    stored = cicd.service_id(base)
+    redeployed = False
     try:
         target = provider if provider is not None else render.Render()
-        made = target.deploy(Service(
-            name=repo.split("/", 1)[1], repo=f"https://github.com/{repo}",
-            branch=branch, build=build, start=start, publish=publish, env=env))
+        made = None
+        if stored and isinstance(target, Redeploy):
+            if target.find(stored) is not None:
+                made = target.redeploy(stored)
+                redeployed = True
+            else:
+                logger.info("service %s no longer exists, so a new one is created", stored)
+        if made is None:
+            made = target.deploy(Service(
+                name=repo.split("/", 1)[1], repo=f"https://github.com/{repo}",
+                branch=branch, build=build, start=start, publish=publish, env=env))
     except Exception as exc:
         return stop(Stage.DEPLOY, f"{type(exc).__name__}: {exc}")
     render.store(base, made)
     place["url"], place["service"] = made.url, made.service_id
-    done(Stage.DEPLOY, f"service {made.service_id} at {made.url}")
+    if redeployed:
+        done(Stage.DEPLOY, f"redeployed existing service {made.service_id} as deploy "
+                           f"{made.deploy_id} at {made.url}; its environment values on "
+                           f"Render were left as they are")
+    else:
+        done(Stage.DEPLOY, f"service {made.service_id} at {made.url}")
 
     # ---------------------------------------------------------------- 6
     watched = monitor.watch(target, f"{made.service_id}/{made.deploy_id}",
@@ -288,7 +389,12 @@ def run(root: str | Path, branch: str = "main", provider=None,
     checked = smoke.run(made.url, fetch=fetch, sleep=sleep, clock=clock,
                         health=answers, endpoint=route(base, stack))
     if not checked.confirmed:
-        return stop(Stage.SMOKE, checked.report())
+        place["rollback"] = recover(target, made, redeployed, rollback, stack, answers,
+                                    fetch, sleep, clock)
+        detail = checked.report()
+        if place["rollback"]:
+            detail += " " + place["rollback"]["detail"]
+        return stop(Stage.SMOKE, detail)
     done(Stage.SMOKE, checked.report())
 
     # ---------------------------------------------------------------- 8
@@ -298,6 +404,6 @@ def run(root: str | Path, branch: str = "main", provider=None,
         return stop(Stage.CICD, wired.detail)
     done(Stage.CICD, wired.summary())
 
-    result = Ship(name, tuple(steps), place["url"], place["service"])
+    result = Ship(name, tuple(steps), place["url"], place["service"], place["rollback"])
     logger.info("%s", result.summary())
     return result

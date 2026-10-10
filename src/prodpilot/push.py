@@ -281,7 +281,12 @@ def run(root: str | Path, token: str | None = None,
             return Push(name, False, staged=staged, fail=fail, detail=line)
 
     code, output = git(base, "commit", "-m", message, token=token)
-    if code != 0 and "nothing to commit" not in output.lower():
+    # Nothing new to commit is not a failure. On a second deploy the generated
+    # files are already committed, and git words that differently when an
+    # untracked file is present, such as ProdPilot's own .env.prodpilot, which
+    # the dirty check before this stage already allowed.
+    quiet = ("nothing to commit", "nothing added to commit")
+    if code != 0 and not any(q in output.lower() for q in quiet):
         fail, line = classify(output)
         return Push(name, False, staged=staged, fail=fail, detail=line)
 

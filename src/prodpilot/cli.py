@@ -370,6 +370,36 @@ def fix(
     typer.echo(f"{len(planned)} rule(s) previewed, {diffs} with a diff. Nothing was written.")
 
 
+@app.command()
+def deploy(
+    project: str = typer.Argument(".", help="The project to deploy. Defaults to the current directory."),
+    branch: str = typer.Option("main", "--branch", help="The branch pushed to and deployed from."),
+    rollback: bool = typer.Option(
+        True, "--rollback/--no-rollback",
+        help="Roll a redeployed service back to its previous live deploy when the "
+             "smoke test fails. On by default."),
+) -> None:
+    """Run the nine deploy stages, as the prodpilot_deploy tool does.
+
+    This creates or redeploys a real Render service and pushes to the project's
+    GitHub repository. Exits 0 when every stage passed and 1 when a stage
+    stopped the run, naming the stage and why.
+    """
+    from prodpilot import prodpush
+
+    configure_logging()
+    shipped = prodpush.run(project, branch=branch, rollback=rollback)
+    for step in shipped.steps:
+        if step.ok:
+            state = "pass" if step.ran else "skipped"
+        else:
+            state = "FAIL" if step.ran else "not reached"
+        detail = step.detail if step.ok or step.ran else ""
+        typer.echo(f"  {step.stage.value:<24} {state:<11} {detail}".rstrip())
+    typer.echo(shipped.summary())
+    raise typer.Exit(code=0 if shipped.ok else 1)
+
+
 # Report formats and the function that renders each from a reporting.View.
 FORMATS = ("sarif", "md", "html")
 

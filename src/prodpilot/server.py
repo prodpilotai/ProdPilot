@@ -316,17 +316,21 @@ def register_tools(server: MCPServer) -> None:
             "repository, so confirm with the developer before calling it. "
             "Commit your own changes first: a working tree holding "
             "uncommitted changes outside ProdPilot's generated files is not "
-            "deployed."
+            "deployed. A project already deployed by ProdPilot is redeployed to "
+            "its existing service, and if the smoke test then fails the service "
+            "is rolled back to its previous live deploy unless rollback is false."
         ),
     )
-    def prodpilot_deploy(project_path: str, branch: str = "main") -> dict[str, Any]:
+    def prodpilot_deploy(project_path: str, branch: str = "main",
+                         rollback: bool = True) -> dict[str, Any]:
         """Take project_path from the gate to a live, wired deployment.
 
         project_path is an absolute or user-relative path to the project root.
         branch is the branch pushed to and deployed from.
+        rollback rolls a redeployed service back when its smoke test fails.
         """
         logger.info("%s called for %s on %s", DEPLOY_TOOL_NAME, project_path, branch)
-        shipped = prodpush.run(project_path, branch=branch)
+        shipped = prodpush.run(project_path, branch=branch, rollback=rollback)
         return {**shipped.to_dict(), "summary": shipped.summary()}
 
 
