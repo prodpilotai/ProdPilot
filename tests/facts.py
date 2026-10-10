@@ -51,9 +51,18 @@ def node_use(rows: list[dict]) -> dict[str, object]:
 
 def version() -> dict[str, object]:
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    declared = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1)
     init = (ROOT / "src" / "prodpilot" / "__init__.py").read_text(encoding="utf-8")
     runtime = re.search(r'__version__\s*=\s*"([^"]+)"', init).group(1)
+    static = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+    if static:
+        declared = static.group(1)
+    else:
+        # Since 1.1 pyproject declares the version dynamic and hatchling reads
+        # it from the file [tool.hatch.version] names, so that file is what it
+        # declares.
+        source = re.search(r'^\[tool\.hatch\.version\]\s*\npath\s*=\s*"([^"]+)"', text, re.M)
+        declared = re.search(r'__version__\s*=\s*"([^"]+)"',
+                             (ROOT / source.group(1)).read_text(encoding="utf-8")).group(1)
     tags = subprocess.run(["git", "tag"], cwd=ROOT, capture_output=True,
                           text=True).stdout.split()
     tagged = {}
