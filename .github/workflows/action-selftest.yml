@@ -1,0 +1,75 @@
+name: Action self-test
+
+# Runs the ProdPilot GitHub Action from this commit against two committed
+# samples on all three runner systems: a ready project, which must pass, and a
+# broken one, which must fail with exit code 1. The action installs ProdPilot
+# from this checkout rather than from PyPI, so a change is tested before release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  clean:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Audit the ready sample
+        id: check
+        uses: ./
+        with:
+          source: .
+          path: tests/samples/node_express_gated
+          min-score: "90"
+          # Only the clean sample is uploaded, so the repository's code
+          # scanning never fills with findings from deliberately broken samples.
+          sarif: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
+
+      - name: The ready sample passed
+        shell: bash
+        env:
+          CODE: ${{ steps.check.outputs.exit-code }}
+        run: test "$CODE" = "0"
+
+  broken:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Audit the broken sample, expecting failure
+        id: check
+        continue-on-error: true
+        uses: ./
+        with:
+          source: .
+          path: tests/samples/node_express_insecure
+          sarif: "false"
+
+      - name: The broken sample failed the readiness check with exit code 1
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.check.outcome }}
+          CODE: ${{ steps.check.outputs.exit-code }}
+        run: |
+          echo "outcome=$OUTCOME exit-code=$CODE"
+          test "$OUTCOME" = "failure"
+          test "$CODE" = "1"

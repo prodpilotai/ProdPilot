@@ -1,0 +1,123 @@
+name: ProdPilot readiness check
+description: >-
+  Audit a Node.js with Express or React with Vite project for production
+  readiness, report the findings to code scanning and the job summary, and fail
+  the job when the project is not ready.
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  version:
+    description: The ProdPilot version to install from PyPI, pinned exactly.
+    required: false
+    default: "1.1.0rc1"
+  path:
+    description: The project to audit, relative to the repository root.
+    required: false
+    default: "."
+  min-score:
+    description: Fail when the score is below this number, 0 to 100. Empty means no minimum.
+    required: false
+    default: ""
+  fail-on:
+    description: Fail when a rule at this priority or above fails, p0, p1 or none.
+    required: false
+    default: "p0"
+  baseline:
+    description: >-
+      Also fail when the project regressed against this Git ref. Defaults to the
+      pull request's base commit on pull_request events, which needs
+      fetch-depth 0 on actions/checkout.
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  sarif:
+    description: Upload the findings to GitHub code scanning, true or false.
+    required: false
+    default: "true"
+  source:
+    description: >-
+      Install ProdPilot from this pip requirement instead of the pinned version,
+      such as a path to a checkout. For testing the action itself.
+    required: false
+    default: ""
+
+outputs:
+  exit-code:
+    description: 0 when the readiness check passed, 1 when it failed, 2 for a tool or usage error.
+    value: ${{ steps.check.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.12"
+
+    - name: Install ProdPilot
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        SOURCE: ${{ inputs.source }}
+      run: |
+        if [ -n "$SOURCE" ]; then
+          python -m pip install --disable-pip-version-check "$SOURCE"
+        else
+          python -m pip install --disable-pip-version-check "prodpilot==$VERSION"
+        fi
+        prodpilot --help > /dev/null
+
+    - name: Write the SARIF report
+      if: inputs.sarif == 'true'
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.path }}
+      run: prodpilot report --format sarif --out "$RUNNER_TEMP/prodpilot.sarif" "$PROJECT"
+
+    # Code scanning is not available on every repository, and a pull request
+    # from a fork cannot write security events. Either way the upload fails, the
+    # notice below says why, and the job is decided by the readiness check alone.
+    - name: Upload the findings to code scanning
+      id: upload
+      if: inputs.sarif == 'true'
+      continue-on-error: true
+      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      with:
+        sarif_file: ${{ runner.temp }}/prodpilot.sarif
+        category: prodpilot
+
+    - name: Note a skipped upload
+      if: inputs.sarif == 'true' && steps.upload.outcome == 'failure'
+      shell: bash
+      run: >-
+        echo "::notice title=ProdPilot::The SARIF upload was skipped because code
+        scanning is not available for this repository or this workflow cannot write
+        security events. The readiness check still decides the job."
+
+    - name: Write the job summary
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.path }}
+      run: |
+        prodpilot report --format md --out "$RUNNER_TEMP/prodpilot.md" "$PROJECT"
+        cat "$RUNNER_TEMP/prodpilot.md" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Check readiness
+      id: check
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.path }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        MIN_SCORE: ${{ inputs.min-score }}
+        BASELINE: ${{ inputs.baseline }}
+      run: |
+        args=(audit --ci --fail-on "$FAIL_ON")
+        if [ -n "$MIN_SCORE" ]; then args+=(--min-score "$MIN_SCORE"); fi
+        if [ -n "$BASELINE" ]; then args+=(--baseline "$BASELINE"); fi
+        set +e
+        prodpilot "${args[@]}" "$PROJECT"
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit "$code"

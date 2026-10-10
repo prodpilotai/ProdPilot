@@ -154,6 +154,35 @@ score 99 meets the threshold, but the model estimates a 5% chance of deploying, 
 build failed, missing dependency: npm error The `npm ci` command can only install with an existing package-lock.json or
 ```
 
+### In CI
+
+The ProdPilot GitHub Action audits the project on every push and pull request,
+uploads the findings to code scanning, writes a report to the job summary, and
+fails the job when the project is not ready:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  prodpilot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: prodpilotai/ProdPilot@v1
+        with:
+          fail-on: p0
+          min-score: "70"
+```
+
+Outside GitHub, `prodpilot audit --ci` exits 0 when the project passes, 1 when
+it does not and 2 for a tool or usage error. See
+[docs/github-action.md](docs/github-action.md) for every input, flag and exit
+code.
+
 ## Tools and commands
 
 The five tools your IDE's agent sees:
@@ -174,6 +203,8 @@ The commands you run:
 | `prodpilot doctor [--project PATH]` | Checks the credentials, git, Node.js and Docker; with `--project`, that the project's state file is kept out of git |
 | `prodpilot connect vscode\|cursor\|devin [--project PATH]` | Adds ProdPilot to that IDE's configuration; `--project` is for Devin, which is set up per project |
 | `prodpilot serve` | Starts the MCP server over stdio; your IDE runs this for you |
+| `prodpilot audit [PROJECT] [--ci] [--min-score N] [--fail-on p0\|p1\|none] [--baseline REF]` | Audits read-only and exits 0, 1 or 2 for CI |
+| `prodpilot report --format sarif\|md\|html --out PATH [PROJECT]` | Writes a SARIF, Markdown or HTML report of the audit |
 
 ## How it works
 
