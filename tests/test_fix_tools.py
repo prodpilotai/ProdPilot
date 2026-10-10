@@ -104,8 +104,12 @@ async def test_the_fix_tools_declare_their_inputs() -> None:
         listed = await client.list_tools()
         tools = {tool.name: tool for tool in listed.tools}
 
-        asked = tools[FIX_INSTRUCTION_TOOL_NAME].input_schema["properties"]
-        assert set(asked) == {"project_path", "rule_id"}
+        schema = tools[FIX_INSTRUCTION_TOOL_NAME].input_schema
+        asked = schema["properties"]
+        # 1.1 added dry_run, optional and off by default; the 1.0.0 inputs are unchanged.
+        assert set(asked) == {"project_path", "rule_id", "dry_run"}
+        assert set(schema["required"]) == {"project_path", "rule_id"}
+        assert asked["dry_run"]["default"] is False
 
         told = tools[FIX_APPLIED_TOOL_NAME].input_schema["properties"]
         assert {"project_path", "rule_id", "applied"} <= set(told)

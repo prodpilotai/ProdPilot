@@ -182,14 +182,18 @@ def register_tools(server: MCPServer) -> None:
             "list of things that must not change, and you author the minimal "
             "change yourself within that boundary. Reads the project and "
             "changes nothing on disk. After applying the change, report it "
-            "with prodpilot_fix_applied."
+            "with prodpilot_fix_applied. With dry_run true it also returns a "
+            "preview: the change as a unified diff, in the order the fix loop "
+            "would reach it, for the developer to review before you apply it."
         ),
     )
-    def prodpilot_fix_instruction(project_path: str, rule_id: str) -> dict[str, Any]:
+    def prodpilot_fix_instruction(project_path: str, rule_id: str,
+                                  dry_run: bool = False) -> dict[str, Any]:
         """Render the contract for rule_id against the project at project_path.
 
         project_path is an absolute or user-relative path to the project root.
         rule_id is the identifier the audit reported, for example SEC-002.
+        dry_run adds the preview of the change and records nothing.
         """
         logger.info("%s called for %s in %s", FIX_INSTRUCTION_TOOL_NAME, rule_id, project_path)
         try:
@@ -204,6 +208,16 @@ def register_tools(server: MCPServer) -> None:
         except FIX_ERRORS as exc:
             logger.warning("%s refused %s: %s", FIX_INSTRUCTION_TOOL_NAME, rule_id, exc)
             return {"ok": False, "error": str(exc), "fix": None}
+
+        if dry_run:
+            # Imported here because the preview module itself imports this one.
+            from prodpilot import preview
+            try:
+                planned = preview.plan(project_path, rule=rule_id)
+            except (preview.PreviewError, OSError) as exc:
+                return {"ok": False, "error": str(exc), "fix": None}
+            return {"ok": True, "error": None, "fix": fix.to_dict(), "dry_run": True,
+                    "preview": planned[0].to_dict() if planned else None}
 
         STANDING[(where(project_path), rule_id)] = dispatch.statuses(report)
         return {"ok": True, "error": None, "fix": fix.to_dict()}

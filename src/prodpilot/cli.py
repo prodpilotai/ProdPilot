@@ -337,6 +337,39 @@ def audit(
     raise typer.Exit(code=outcome.code)
 
 
+@app.command()
+def fix(
+    project: str = typer.Argument(".", help="The project to preview. Defaults to the current directory."),
+    dry_run: bool = typer.Option(False, "--dry-run",
+                                 help="Show the changes the fix loop would make, and write nothing."),
+    rule: str = typer.Option(None, "--rule", help="Preview only this rule, for example SEC-002."),
+) -> None:
+    """Preview the fix loop's changes without writing anything.
+
+    Content contracts are shown as unified diffs, in the order the loop would
+    reach them. A refused parametric rule shows its reason and candidates, and a
+    delegated rule shows the contract your IDE agent works within. The fixes
+    themselves are applied by your IDE's agent through prodpilot_fix_instruction.
+    """
+    from prodpilot import preview
+
+    configure_logging()
+    if not dry_run:
+        typer.secho("prodpilot fix only previews, so pass --dry-run. Your IDE's agent applies "
+                    "fixes through prodpilot_fix_instruction.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    try:
+        planned = preview.plan(project, rule=rule)
+    except (preview.PreviewError, NotADirectoryError, OSError) as exc:
+        typer.secho(f"prodpilot fix: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    for item in planned:
+        typer.echo(item.text())
+        typer.echo("")
+    diffs = sum(1 for p in planned if p.kind == preview.DIFF)
+    typer.echo(f"{len(planned)} rule(s) previewed, {diffs} with a diff. Nothing was written.")
+
+
 # Report formats and the function that renders each from a reporting.View.
 FORMATS = ("sarif", "md", "html")
 
