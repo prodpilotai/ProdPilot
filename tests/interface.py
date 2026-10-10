@@ -17,7 +17,6 @@ import os
 import sys
 from pathlib import Path
 
-import click
 import typer
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from typer.testing import CliRunner
@@ -60,8 +59,11 @@ def _plain(value):
 
 def commands() -> dict[str, dict]:
     """Every CLI command with its parameters and rendered help."""
+    # Read by attribute rather than by class: Typer 0.21 and later ship their
+    # own copy of Click, so the group is not a click.Group there.
     group = typer.main.get_command(app)
-    assert isinstance(group, click.Group)
+    if not hasattr(group, "commands"):
+        raise TypeError(f"the CLI is not a command group: {type(group).__name__}")
     runner = CliRunner()
     out = {"": {"params": [], "help": runner.invoke(app, ["--help"], env=HELP_ENV).output}}
     for name, command in sorted(group.commands.items()):
