@@ -298,6 +298,45 @@ def connect(
     typer.echo(AFTER[client])
 
 
+@app.command()
+def audit(
+    project: str = typer.Argument(".", help="The project to audit. Defaults to the current directory."),
+    ci: bool = typer.Option(False, "--ci",
+                            help="Machine-readable JSON summary on stdout, no prompts, no network."),
+    min_score: int = typer.Option(None, "--min-score",
+                                  help="Fail when the score is below this number, 0 to 100."),
+    fail_on: str = typer.Option("p0", "--fail-on",
+                                help="Fail when a rule at this priority or above fails: p0, p1 or none."),
+    baseline: str = typer.Option(None, "--baseline",
+                                 help="Also fail when the project regressed against this Git ref."),
+) -> None:
+    """Audit a project read-only and check it is ready.
+
+    Exit codes: 0 when the readiness check passed, 1 when it failed, 2 for a
+    tool or usage error such as a path that is not a project or a baseline ref
+    that cannot be resolved.
+    """
+    import json
+
+    from prodpilot import ci as checks
+
+    configure_logging()
+    try:
+        outcome = checks.check(project, fail_on=fail_on, min_score=min_score,
+                               baseline=baseline)
+    except (checks.CIError, NotADirectoryError, OSError) as exc:
+        if ci:
+            typer.echo(json.dumps({"passed": False, "exit_code": checks.ERROR,
+                                   "error": str(exc)}))
+        typer.secho(f"prodpilot audit: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=checks.ERROR)
+    if ci:
+        typer.echo(json.dumps(outcome.to_dict(), indent=2))
+    else:
+        typer.echo(outcome.summary())
+    raise typer.Exit(code=outcome.code)
+
+
 # Report formats and the function that renders each from a reporting.View.
 FORMATS = ("sarif", "md", "html")
 
