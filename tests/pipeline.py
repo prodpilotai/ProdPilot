@@ -155,6 +155,9 @@ def audited(report) -> dict:
         "score": report.score,
         "failing": by_type(r.rule_id for r in report.issues),
         "blockers": [r.rule_id for r in report.blockers],
+        # Every rule's status, so a reader can tell a rule skipped as not
+        # applicable from one that passed. The website's hero is built from these.
+        "statuses": {r.rule_id: r.status.value for r in report.results},
     }
 
 
