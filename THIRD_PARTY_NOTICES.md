@@ -12,3 +12,8 @@ its code.
 ProdPilot's own dependencies, such as the MCP SDK, scikit-learn and the Docker
 SDK, are installed from PyPI under their own licenses and are not shipped
 inside this package.
+
+The test suite, which is not part of the package, carries one more file:
+`tests/fixtures/sarif/sarif-schema-2.1.0.json`, the official SARIF 2.1.0 JSON
+schema from OASIS, used to validate ProdPilot's SARIF output. Its notice and
+source are in `tests/fixtures/sarif/LICENSE.txt`.

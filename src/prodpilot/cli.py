@@ -298,5 +298,58 @@ def connect(
     typer.echo(AFTER[client])
 
 
+# Report formats and the function that renders each from a reporting.View.
+FORMATS = ("sarif",)
+
+
+def render_report(fmt: str, view) -> str:
+    """The report text for one format."""
+    import json
+
+    from prodpilot.sarif import to_sarif
+
+    if fmt == "sarif":
+        return json.dumps(to_sarif(view), indent=2, ensure_ascii=False) + "\n"
+    raise ValueError(f"unknown report format {fmt}")
+
+
+@app.command()
+def report(
+    project: str = typer.Argument(".", help="The project to audit. Defaults to the current directory."),
+    fmt: str = typer.Option(..., "--format", help="Report format: " + ", ".join(FORMATS) + "."),
+    out: str = typer.Option(..., "--out", help="File to write the report to."),
+) -> None:
+    """Audit a project read-only and write a report.
+
+    Exits 0 when the report was written, whatever the audit found. Exits 2 when
+    the report could not be produced: an unknown format, a path that is not a
+    project, or a file that could not be written.
+    """
+    configure_logging()
+    from pathlib import Path
+
+    from prodpilot import reporting
+
+    if fmt not in FORMATS:
+        typer.secho(f"Unknown format {fmt}. Choose one of: {', '.join(FORMATS)}.",
+                    fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    try:
+        view = reporting.build(project)
+    except (NotADirectoryError, OSError, ValueError) as exc:
+        typer.secho(f"Cannot audit {project}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    text = render_report(fmt, view)
+    target = Path(out)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        typer.secho(f"Cannot write {target}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    typer.echo(f"Wrote {fmt} report for {view.project} to {target}: score "
+               f"{view.report.score}/100, {len(view.items)} failing rule(s).")
+
+
 if __name__ == "__main__":
     app()

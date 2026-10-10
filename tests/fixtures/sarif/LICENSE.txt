@@ -1,0 +1,31 @@
+sarif-schema-2.1.0.json in this directory is the official JSON schema for the
+Static Analysis Results Interchange Format (SARIF) Version 2.1.0, Plus Errata 01,
+an OASIS Standard. It is copied unchanged from:
+
+  https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json
+
+SHA-256 of the copied file:
+  c3b4bb2d6093897483348925aaa73af03b3e3f4bd4ca38cef26dcb4212a2682e
+
+It is used only by ProdPilot's tests, to validate the SARIF ProdPilot writes. It
+is not part of the ProdPilot package.
+
+Notices, quoted from the specification
+(https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html):
+
+Copyright (c) OASIS Open 2023. All Rights Reserved.
+
+This document and translations of it may be copied and furnished to others, and
+derivative works that comment on or otherwise explain it or assist in its
+implementation may be prepared, copied, published, and distributed, in whole or
+in part, without restriction of any kind, provided that the above copyright
+notice and this section are included on all such copies and derivative works.
+
+This document and the information contained herein is provided on an "AS IS"
+basis and OASIS DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION HEREIN WILL NOT INFRINGE
+ANY OWNERSHIP RIGHTS OR ANY IMPLIED WARRANTIES OF MERCHANTABILITY OR FITNESS FOR
+A PARTICULAR PURPOSE.
+
+The specification is provided under the RF on RAND Terms Mode of the OASIS IPR
+Policy.
