@@ -14,7 +14,8 @@ vulnerability. Include what you did, what happened, and the version that
 
 | Version | Supported |
 | --- | --- |
-| 1.0.0rc1 and later 1.0 releases | Yes |
+| 1.1.0 and later 1.1 releases | Yes |
+| 1.0 releases | No: upgrade to 1.1, which changes no rule, score or gate decision |
 | Anything earlier | No |
 
 ## How ProdPilot handles your credentials
@@ -32,6 +33,9 @@ vulnerability. Include what you did, what happened, and the version that
 - Secrets are given to the test container when it runs, never as build
   arguments, which would record them in the image history.
 - `.env.production` is only written when Git ignores it.
+- No report format prints a credential. `prodpilot report`, the dry-run preview
+  and `prodpilot audit` show a found secret only as its file, its line, its first
+  four characters and its length.
 
 ## What leaves your machine
 
@@ -40,3 +44,8 @@ the files it generated, repository secrets, workflow status), to Render
 (creating the service with your sealed environment values, deploy status and
 logs), and, while building your project, to Docker Hub and the npm registry.
 It sends no telemetry.
+
+The GitHub Action, when you use it, uploads its SARIF report to your
+repository's GitHub code scanning. The report holds rule identifiers, file paths,
+line numbers and messages, with any secret masked as above. Set `sarif: "false"`
+to keep it out of code scanning.

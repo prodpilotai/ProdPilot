@@ -5,7 +5,7 @@
 [![Tests](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml/badge.svg)](https://github.com/prodpilotai/ProdPilot/actions/workflows/tests.yml)
 [![Python 3.11 to 3.14](https://img.shields.io/badge/python-3.11%20to%203.14-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-brightgreen)](CHANGELOG.md)
+[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-brightgreen)](CHANGELOG.md)
 
 AI coding assistants make it quick to build a Node.js API or a React app that
 runs on your laptop. Getting it to run in production is where it breaks:
@@ -55,7 +55,7 @@ prodpilot setup                 # 2. store your GitHub token and Render API key
 prodpilot connect vscode        # 3. connect your IDE: vscode, cursor, or devin --project PATH
 ```
 
-To pin the version, ask for `prodpilot==1.0.0`.
+To pin the version, ask for `prodpilot==1.1.0`.
 
 Then check that everything ProdPilot needs is in place:
 
