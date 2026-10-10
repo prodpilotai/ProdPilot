@@ -42,7 +42,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from prodpilot import astchecks, filechecks
+from prodpilot import astchecks, filechecks, nodever
 from prodpilot.audit import RuleResult
 from prodpilot.entropy import scan_project
 from prodpilot.jsparse import Tree, line_of, name_of, walk
@@ -336,15 +336,19 @@ def install_of(pm: Extract) -> str:
     return INSTALLS[pm.values["manager"]]
 
 
-def node_version(src: Source) -> str:
-    """The Node major version to build against."""
-    engines = src.pkg.get("engines")
-    spec = engines.get("node") if isinstance(engines, dict) else None
-    if isinstance(spec, str):
-        hit = re.search(r"(\d{2})", spec)
-        if hit:
-            return hit.group(1)
-    return "20"
+def node_version(src: Source) -> Extract:
+    """The Node major the generated image and workflow build on.
+
+    Read where Render reads it, so the image and the service run the same major.
+    A declared range that spans several majors, or has no upper bound, is not
+    guessed: the contract refuses and names the supported majors it allows.
+    See module nodever.
+    """
+    chosen = nodever.choose(src.root)
+    if chosen.resolved.ambiguous:
+        return unclear(chosen.resolved.reason,
+                       [f"Node {m}" for m in chosen.resolved.candidates])
+    return found(node=str(chosen.resolved.major))
 
 
 def base_images(text: str | None) -> list[str]:
@@ -472,10 +476,13 @@ def dockerfile_node(src: Source, issue: RuleResult) -> Extract:
     pm = manager(src)
     if not pm.ok:
         return pm
+    node = node_version(src)
+    if not node.ok:
+        return node
     install = install_of(pm)
     return found(
         entry=entry.values["entry"],
-        node=node_version(src),
+        node=node.values["node"],
         install=install,
         manager=pm.values["manager"],
     )
@@ -489,11 +496,14 @@ def dockerfile_react(src: Source, issue: RuleResult) -> Extract:
     pm = manager(src)
     if not pm.ok:
         return pm
+    node = node_version(src)
+    if not node.ok:
+        return node
     install = install_of(pm)
     run = {"npm": "npm run build", "yarn": "yarn build", "pnpm": "pnpm build"}[
         pm.values["manager"]
     ]
-    return found(node=node_version(src), install=install, build=run,
+    return found(node=node.values["node"], install=install, build=run,
                  manager=pm.values["manager"])
 
 
@@ -518,7 +528,10 @@ def ci_workflow(src: Source, issue: RuleResult) -> Extract:
         steps.append({"npm": "npm run build", "yarn": "yarn build", "pnpm": "pnpm build"}[which])
     if isinstance(src.scripts.get("test"), str):
         steps.append({"npm": "npm test", "yarn": "yarn test", "pnpm": "pnpm test"}[which])
-    return found(node=node_version(src), steps="\n".join(f"      - run: {s}" for s in steps),
+    node = node_version(src)
+    if not node.ok:
+        return node
+    return found(node=node.values["node"], steps="\n".join(f"      - run: {s}" for s in steps),
                  manager=which)
 
 

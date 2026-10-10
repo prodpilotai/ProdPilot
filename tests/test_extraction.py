@@ -212,7 +212,9 @@ def test_a_dockerfile_is_built_from_the_projects_own_values():
 
     assert got.ok
     assert got.values["entry"] == "src/server.js"
-    assert got.values["node"] == "20"
+    # No Node version is declared, so the image uses the Active LTS line. Since
+    # 1.1 that is 24; Node 20 reached end of life on 2026-04-30.
+    assert got.values["node"] == "24"
 
 
 def test_the_node_version_is_read_from_the_engines_field():
@@ -277,7 +279,7 @@ def test_a_rendered_dockerfile_carries_the_projects_entry_point():
     rendered = render(src_for("node_express_api"), issue("BLD-001"))
 
     assert "src/server.js" in rendered.content
-    assert "node:20-alpine" in rendered.content
+    assert "node:24-alpine" in rendered.content
     assert rendered.action is Action.CREATE_FILE
     assert rendered.file_path == "Dockerfile"
 
@@ -285,7 +287,7 @@ def test_a_rendered_dockerfile_carries_the_projects_entry_point():
 def test_content_follows_the_project_rather_than_a_fixed_template(tmp_path: Path):
     """This is what separates a parametric fix from a static one."""
     (tmp_path / "package.json").write_text(
-        '{"main": "lib/boot.js", "engines": {"node": ">=22"},'
+        '{"main": "lib/boot.js", "engines": {"node": ">=22 <23"},'
         ' "dependencies": {"express": "1"}}',
         encoding="utf-8",
     )

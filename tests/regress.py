@@ -4,7 +4,10 @@ Records, for each project under tests/samples, what 1.0.0 decided about it: the
 detected stack, the score and band, every rule's verdict, the fix contract each
 failing rule produces, and the gate's decision. Later releases must reproduce
 this record exactly, except for differences a module documents in
-tests/baseline/allowed.json.
+tests/baseline/allowed.json. Each documented difference names the rules whose
+fix contracts it touches and the exact text substitutions it makes. The
+substitutions are applied to the stored record before comparing, so anything
+else that changed in those contracts is still reported.
 
 The gate asks whether the project builds before it consults the model, and that
 check runs Render's build command in Docker. A baseline that needs Docker cannot
@@ -121,16 +124,35 @@ def differences(stored: dict, current: dict, prefix: str = "") -> list[str]:
     return out
 
 
-def allowed() -> dict[str, str]:
-    """Documented differences: a path prefix and the reason it may differ."""
+def allowed() -> list[dict]:
+    """Documented differences, each with its reason, rules and substitutions."""
     if not ALLOWED.is_file():
-        return {}
+        return []
     return json.loads(ALLOWED.read_text(encoding="utf-8"))
 
 
-def unexplained(found: list[str], allow: dict[str, str]) -> list[str]:
-    return [line for line in found
-            if not any(line.startswith(prefix) for prefix in allow)]
+def _replaced(value, pairs: list[list[str]]):
+    if isinstance(value, dict):
+        return {k: _replaced(v, pairs) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_replaced(v, pairs) for v in value]
+    if isinstance(value, str):
+        for old, new in pairs:
+            value = value.replace(old, new)
+    return value
+
+
+def expected(stored: dict, allow: list[dict]) -> dict:
+    """The stored record with every documented substitution applied to its contracts."""
+    out = json.loads(json.dumps(stored))
+    for entry in allow:
+        for name in entry["projects"]:
+            project = out[name]
+            for rule in entry["rules"]:
+                if rule in project["contracts"]:
+                    project["contracts"][rule] = _replaced(project["contracts"][rule],
+                                                           entry["replace"])
+    return out
 
 
 def main(argv: list[str]) -> int:
@@ -142,13 +164,15 @@ def main(argv: list[str]) -> int:
         print(f"wrote {BASELINE} for {len(current)} projects")
         return 0
     stored = json.loads(BASELINE.read_text(encoding="utf-8"))
-    found = differences(stored, current)
+    raw = differences(stored, current)
+    for line in raw:
+        print(f"differs from 1.0.0: {line}")
     allow = allowed()
-    for line in found:
-        tag = "allowed" if line not in unexplained([line], allow) else "UNEXPLAINED"
-        print(f"{tag}: {line}")
-    bad = unexplained(found, allow)
-    print(f"{len(current)} projects, {len(found)} difference(s), {len(bad)} unexplained")
+    bad = differences(expected(stored, allow), current)
+    for line in bad:
+        print(f"UNEXPLAINED: {line}")
+    print(f"{len(current)} projects, {len(raw)} difference(s) from 1.0.0, "
+          f"{len(bad)} not explained by {ALLOWED.name}")
     return 1 if bad else 0
 
 

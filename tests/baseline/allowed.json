@@ -1,0 +1,39 @@
+[
+ {
+  "module": "1.1 Module 1",
+  "reason": "With no Node version declared, generated Dockerfiles and CI workflows use Node 24, the Active LTS line and Render's default for new services, instead of Node 20, which reached end of life on 2026-04-30. Rule outcomes, scores and gate decisions are unchanged.",
+  "projects": [
+   "amb_two_drivers",
+   "amb_two_entries",
+   "amb_two_lockfiles",
+   "amb_two_roots",
+   "amb_unnamed_secret",
+   "node_express_api",
+   "node_express_insecure",
+   "node_express_secrets",
+   "node_express_secure",
+   "node_express_wildcard",
+   "react_vite_app",
+   "react_vite_hardened",
+   "react_vite_noroute",
+   "react_vite_ready",
+   "react_vite_ts_config"
+  ],
+  "rules": [
+   "BLD-001",
+   "BLD-003",
+   "BLD-007",
+   "BLD-010"
+  ],
+  "replace": [
+   [
+    "node:20-alpine",
+    "node:24-alpine"
+   ],
+   [
+    "node-version: \"20\"",
+    "node-version: \"24\""
+   ]
+  ]
+ }
+]
