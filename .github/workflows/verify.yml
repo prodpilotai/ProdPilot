@@ -1,0 +1,142 @@
+name: Release verification
+
+# What a user gets, checked before and after a release. On every push to main it
+# builds the package and checks it, installs the built wheel in a fresh virtual
+# environment on each system and runs the clean-install checks, and upgrades a
+# 1.0.0 install to the wheel. Run by hand with a version, it installs that
+# version from PyPI instead, which is how a published release is checked.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Check this version as published on PyPI instead of the built wheel
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Build the sdist and wheel and check their metadata
+        run: |
+          python -m pip install --quiet build twine
+          python -m build
+          python -m twine check --strict dist/*
+
+      - name: The wheel holds what a user needs and nothing else
+        run: |
+          python - <<'PY'
+          import glob, re, zipfile
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          version = re.search(r'__version__ = "([^"]+)"', open("src/prodpilot/__init__.py").read()).group(1)
+          assert f"prodpilot-{version}-" in wheel, (wheel, version)
+          need = ["prodpilot/model/model.joblib", "prodpilot/vendor/parse.mjs",
+                  "prodpilot/vendor/node_modules/acorn/dist/acorn.mjs",
+                  "prodpilot/rules.py", "prodpilot/templates.py", "prodpilot/extraction.py"]
+          for name in need:
+              assert name in names, f"missing {name}"
+          bad = [n for n in names if n.startswith("tests/") or "__pycache__" in n
+                 or ".pytest_cache" in n or n.endswith((".env", ".pyc"))
+                 or "/.env." in n or n.startswith("data/")]
+          assert not bad, f"unexpected files: {bad[:10]}"
+          meta = zipfile.ZipFile(wheel).read(next(n for n in names if n.endswith("METADATA"))).decode()
+          for line in ("Name: prodpilot", f"Version: {version}", "Requires-Python: <3.15,>=3.11",
+                       "Requires-Dist: scikit-learn==1.9.0", "License: MIT"):
+              assert line in meta, f"metadata lacks {line}"
+          print(wheel, len(names), "files, contents and metadata as expected")
+          PY
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+
+  clean-install:
+    needs: package
+    if: always() && (needs.package.result == 'success' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: github.event_name == 'push'
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install in a fresh virtual environment and run the checks outside the repository
+        shell: bash
+        env:
+          WANTED: ${{ inputs.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/user"
+          bin="$RUNNER_TEMP/user/bin"
+          [ -d "$bin" ] || bin="$RUNNER_TEMP/user/Scripts"
+          if [ -n "$WANTED" ]; then
+            "$bin/python" -m pip install --quiet "prodpilot==$WANTED"
+            version="$WANTED"
+          else
+            "$bin/python" -m pip install --quiet dist/*.whl
+            version=$(python -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('src/prodpilot/__init__.py').read()).group(1))")
+          fi
+          cp tests/install_check.py "$RUNNER_TEMP/"
+          samples="$PWD/tests/samples"
+          cd "$RUNNER_TEMP"
+          "$bin/python" install_check.py clean "$version" "$samples"
+
+  upgrade:
+    needs: package
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install 1.0.0, store credentials and connect Cursor, then upgrade to the wheel
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/user"
+          bin="$RUNNER_TEMP/user/bin"
+          [ -d "$bin" ] || bin="$RUNNER_TEMP/user/Scripts"
+          "$bin/python" -m pip install --quiet "prodpilot==1.0.0"
+          cp tests/install_check.py "$RUNNER_TEMP/"
+          version=$(python -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('src/prodpilot/__init__.py').read()).group(1))")
+          wheel="$PWD/$(ls dist/*.whl)"
+          cd "$RUNNER_TEMP"
+          "$bin/python" install_check.py before-upgrade
+          "$bin/python" -m pip install --quiet --upgrade "$wheel"
+          "$bin/python" install_check.py after-upgrade "$version"

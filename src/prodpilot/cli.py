@@ -50,8 +50,19 @@ def configure_logging() -> None:
     )
 
 
+def print_version(value: bool) -> None:
+    if value:
+        from prodpilot import __version__
+
+        typer.echo(f"prodpilot {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
-def main() -> None:
+def main(
+    version: bool = typer.Option(False, "--version", is_eager=True, callback=print_version,
+                                 help="Print the installed version and exit."),
+) -> None:
     """ProdPilot MCP server.
 
     Declaring a callback keeps Typer in command group mode. Without it Typer
