@@ -1,0 +1,183 @@
+{
+ "commands": {
+  "": {
+   "help": "                                                                                                   \n Usage: prodpilot [OPTIONS] COMMAND [ARGS]...                                                      \n                                                                                                   \n ProdPilot MCP server.                                                                             \n                                                                                                   \n\u250c\u2500 Options \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 --help          Show this message and exit.                                                     \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\u250c\u2500 Commands \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 serve     Serve the ProdPilot MCP server over stdio.                                            \u2502\n\u2502 setup     Store the GitHub token and Render API key for this developer.                         \u2502\n\u2502 doctor    Report whether ProdPilot's prerequisites are in place.                                \u2502\n\u2502 connect   Connect an IDE's agent to ProdPilot, naming this machine's prodpilot command.         \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n",
+   "params": []
+  },
+  "connect": {
+   "help": "                                                                                                   \n Usage: prodpilot connect [OPTIONS] CLIENT                                                         \n                                                                                                   \n Connect an IDE's agent to ProdPilot, naming this machine's prodpilot command.                     \n                                                                                                   \n VS Code and Cursor are connected once for every project; Devin, which blanks the                  \n ${workspaceFolder} other configurations use, once per project.                                    \n                                                                                                   \n\u250c\u2500 Arguments \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 *    client      TEXT  [required]                                                               \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\u250c\u2500 Options \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 --project        TEXT  Devin only: the project folder you open in Devin. Defaults to the        \u2502\n\u2502                        current directory.                                                       \u2502\n\u2502                        [default: .]                                                             \u2502\n\u2502 --help                 Show this message and exit.                                              \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n",
+   "params": [
+    {
+     "default": null,
+     "flag": false,
+     "kind": "argument",
+     "name": "client",
+     "opts": [
+      "client"
+     ],
+     "required": true,
+     "secondary_opts": [],
+     "type": "text"
+    },
+    {
+     "default": ".",
+     "flag": false,
+     "kind": "option",
+     "name": "project",
+     "opts": [
+      "--project"
+     ],
+     "required": false,
+     "secondary_opts": [],
+     "type": "text"
+    }
+   ]
+  },
+  "doctor": {
+   "help": "                                                                                                   \n Usage: prodpilot doctor [OPTIONS]                                                                 \n                                                                                                   \n Report whether ProdPilot's prerequisites are in place.                                            \n                                                                                                   \n Exits non-zero when something required is missing, so the failure is visible to a script rather   \n than buried in output.                                                                            \n                                                                                                   \n\u250c\u2500 Options \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 --project        TEXT  Also check the project state conventions for this directory.             \u2502\n\u2502 --help                 Show this message and exit.                                              \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n",
+   "params": [
+    {
+     "default": null,
+     "flag": false,
+     "kind": "option",
+     "name": "project",
+     "opts": [
+      "--project"
+     ],
+     "required": false,
+     "secondary_opts": [],
+     "type": "text"
+    }
+   ]
+  },
+  "serve": {
+   "help": "                                                                                                   \n Usage: prodpilot serve [OPTIONS]                                                                  \n                                                                                                   \n Serve the ProdPilot MCP server over stdio.                                                        \n                                                                                                   \n\u250c\u2500 Options \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 --help          Show this message and exit.                                                     \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n",
+   "params": []
+  },
+  "setup": {
+   "help": "                                                                                                   \n Usage: prodpilot setup [OPTIONS]                                                                  \n                                                                                                   \n Store the GitHub token and Render API key for this developer.                                     \n                                                                                                   \n Values are written to ~/.prodpilot/config.toml, never inside a project. Nothing entered here is   \n printed back to the terminal.                                                                     \n                                                                                                   \n\u250c\u2500 Options \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 --help          Show this message and exit.                                                     \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n",
+   "params": []
+  }
+ },
+ "tools": {
+  "prodpilot_deploy": {
+   "annotations": {
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true,
+    "read_only_hint": false
+   },
+   "input_schema": {
+    "properties": {
+     "branch": {
+      "default": "main",
+      "title": "Branch",
+      "type": "string"
+     },
+     "project_path": {
+      "title": "Project Path",
+      "type": "string"
+     }
+    },
+    "required": [
+     "project_path"
+    ],
+    "title": "prodpilot_deployArguments",
+    "type": "object"
+   }
+  },
+  "prodpilot_detect_stack": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "input_schema": {
+    "properties": {
+     "project_path": {
+      "title": "Project Path",
+      "type": "string"
+     }
+    },
+    "required": [
+     "project_path"
+    ],
+    "title": "prodpilot_detect_stackArguments",
+    "type": "object"
+   }
+  },
+  "prodpilot_fix_applied": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "input_schema": {
+    "properties": {
+     "applied": {
+      "title": "Applied",
+      "type": "boolean"
+     },
+     "attempt": {
+      "default": 1,
+      "title": "Attempt",
+      "type": "integer"
+     },
+     "project_path": {
+      "title": "Project Path",
+      "type": "string"
+     },
+     "rule_id": {
+      "title": "Rule Id",
+      "type": "string"
+     },
+     "summary": {
+      "default": "",
+      "title": "Summary",
+      "type": "string"
+     }
+    },
+    "required": [
+     "project_path",
+     "rule_id",
+     "applied"
+    ],
+    "title": "prodpilot_fix_appliedArguments",
+    "type": "object"
+   }
+  },
+  "prodpilot_fix_instruction": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "input_schema": {
+    "properties": {
+     "project_path": {
+      "title": "Project Path",
+      "type": "string"
+     },
+     "rule_id": {
+      "title": "Rule Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "project_path",
+     "rule_id"
+    ],
+    "title": "prodpilot_fix_instructionArguments",
+    "type": "object"
+   }
+  },
+  "prodpilot_ping": {
+   "annotations": {
+    "open_world_hint": false,
+    "read_only_hint": true
+   },
+   "input_schema": {
+    "properties": {},
+    "title": "prodpilot_pingArguments",
+    "type": "object"
+   }
+  }
+ }
+}
