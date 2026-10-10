@@ -130,3 +130,38 @@ class Provider(Protocol):
 # The four names, kept as data so module 6.9 can check the interface it is
 # meant to verify rather than restating it from the document.
 METHODS = ("deploy", "poll_status", "get_logs", "set_env")
+
+
+# Two optional capabilities added in 1.1. The four methods above are unchanged,
+# and a provider that offers neither of these keeps working exactly as before:
+# ProdPush checks for each one before using it.
+
+
+@runtime_checkable
+class Redeploy(Protocol):
+    """A provider that can deploy again to a service it created earlier."""
+
+    def find(self, service_id: str) -> str | None:
+        """The service's address, or None when the service no longer exists."""
+        ...
+
+    def redeploy(self, service_id: str) -> Deployment:
+        """Start a new deploy of the service's branch and say which deploy it is."""
+        ...
+
+
+@runtime_checkable
+class Rollback(Protocol):
+    """A provider that can return a service to an earlier deploy."""
+
+    def previous_live(self, service_id: str, deploy_id: str) -> str | None:
+        """The last deploy that was live before deploy_id, or None when there was none."""
+        ...
+
+    def rollback(self, service_id: str, deploy_id: str) -> str:
+        """Roll the service back to deploy_id and return the id of the rollback deploy."""
+        ...
+
+
+REDEPLOY_METHODS = ("find", "redeploy")
+ROLLBACK_METHODS = ("previous_live", "rollback")

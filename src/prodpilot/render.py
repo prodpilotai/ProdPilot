@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -296,6 +297,92 @@ class Render:
         self.call(f"/services/{service_id}", method="DELETE")
         logger.info("deleted Render service %s", service_id)
 
+    # -------------------------------------------- 1.1: redeploy and rollback
+
+    def find(self, service_id: str) -> str | None:
+        """The service's address, or None when Render no longer has it."""
+        reply = self.fetch(f"{API}/services/{service_id}", "GET", self.headers(), None)
+        self.calls += 1
+        if reply.status in (404, 410):
+            return None
+        if not 200 <= reply.status < 300:
+            raise RenderError(f"GET /services/{service_id} returned {reply.status}: {said(reply)}")
+        found = reply.json()
+        if not isinstance(found, dict):
+            raise RenderError("the service lookup returned no object")
+        url = live_url(found)
+        if not url:
+            static = found.get("staticSiteDetails")
+            url = str(static.get("url") or "") if isinstance(static, Mapping) else ""
+        return url
+
+    def deploys(self, service_id: str, limit: int = 100) -> list[dict]:
+        """The service's most recent deploys, as Render lists them."""
+        found = self.call(f"/services/{service_id}/deploys", params={"limit": limit})
+        if not isinstance(found, list):
+            raise RenderError("the deploy listing returned no list")
+        return [item["deploy"] for item in found
+                if isinstance(item, dict) and isinstance(item.get("deploy"), dict)]
+
+    def redeploy(self, service_id: str) -> Deployment:
+        """Start a new deploy of the service's branch.
+
+        Render answers with the new deploy, or with 202 and no body when the
+        deploy is queued behind another. Then the deploy is the newest one
+        created since the trigger, and finding none is an error rather than a
+        guess, exactly as the CI/CD workflow decides it.
+        """
+        since = time.time()
+        reply = self.fetch(f"{API}/services/{service_id}/deploys", "POST", self.headers(),
+                           json.dumps({}).encode("utf-8"))
+        self.calls += 1
+        if reply.status == 201:
+            made = reply.json()
+            deploy_id = made.get("id") if isinstance(made, dict) else None
+        elif reply.status == 202:
+            recent = [d for d in self.deploys(service_id) if created_at(d) >= since - SKEW]
+            deploy_id = max(recent, key=created_at)["id"] if recent else None
+        else:
+            raise RenderError(f"POST /services/{service_id}/deploys returned {reply.status}: "
+                              f"{said(reply)}")
+        if not deploy_id:
+            raise RenderError(f"Render accepted the deploy of {service_id}, but no deploy "
+                              f"created since the trigger was found")
+        url = self.find(service_id)
+        if url is None:
+            raise RenderError(f"service {service_id} disappeared while it was being deployed")
+        logger.info("redeploying Render service %s as deploy %s", service_id, deploy_id)
+        return Deployment(service_id=service_id, deploy_id=str(deploy_id), url=url)
+
+    def previous_live(self, service_id: str, deploy_id: str) -> str | None:
+        """The last deploy that served traffic before deploy_id, read from Render.
+
+        Never guessed: it is the newest deploy created before deploy_id whose
+        state is live or deactivated, the two states of a deploy that once
+        served. None when the service has no such deploy.
+        """
+        listed = self.deploys(service_id)
+        current = next((d for d in listed if d.get("id") == deploy_id), None)
+        if current is None:
+            raise RenderError(f"deploy {deploy_id} is not among the recent deploys of "
+                              f"{service_id}, so the deploy before it cannot be identified")
+        cutoff = created_at(current)
+        earlier = [d for d in listed if d.get("id") != deploy_id
+                   and d.get("status") in SERVED and created_at(d) < cutoff]
+        if not earlier:
+            return None
+        return str(max(earlier, key=created_at)["id"])
+
+    def rollback(self, service_id: str, deploy_id: str) -> str:
+        """Roll the service back to deploy_id. Returns the rollback deploy's id."""
+        made = self.call(f"/services/{service_id}/rollback", method="POST",
+                         body={"deployId": deploy_id})
+        new = made.get("id") if isinstance(made, dict) else None
+        if not new:
+            raise RenderError(f"the rollback of {service_id} to {deploy_id} returned no deploy id")
+        logger.info("rolling %s back to deploy %s as deploy %s", service_id, deploy_id, new)
+        return str(new)
+
     # ---------------------------------------------------------------- 6.6
 
     def poll_status(self, deploy_id: str) -> Status:
@@ -332,6 +419,26 @@ class Render:
         if not entries:
             return ""
         return "\n".join(str(e.get("message", "")) for e in entries if isinstance(e, dict))
+
+
+# Deploy states that mean a deploy once served traffic: live is serving now,
+# deactivated was live and has since been replaced by a newer deploy.
+SERVED = ("live", "deactivated")
+
+# How far apart Render's clock and this machine's may be when a queued deploy is
+# matched to the trigger that started it. The CI/CD workflow allows the same.
+SKEW = 30
+
+
+def created_at(deploy: Mapping) -> float:
+    """When Render created a deploy, as a timestamp."""
+    from datetime import datetime
+
+    stamp = str(deploy.get("createdAt") or "")
+    try:
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except ValueError as exc:
+        raise RenderError(f"deploy {deploy.get('id')} has no readable createdAt: {stamp}") from exc
 
 
 def live_url(created: Mapping) -> str:
