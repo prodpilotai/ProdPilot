@@ -299,17 +299,22 @@ def connect(
 
 
 # Report formats and the function that renders each from a reporting.View.
-FORMATS = ("sarif",)
+FORMATS = ("sarif", "md", "html")
 
 
 def render_report(fmt: str, view) -> str:
     """The report text for one format."""
     import json
 
+    from prodpilot import formats
     from prodpilot.sarif import to_sarif
 
     if fmt == "sarif":
         return json.dumps(to_sarif(view), indent=2, ensure_ascii=False) + "\n"
+    if fmt == "md":
+        return formats.to_markdown(view, formats.decide(view))
+    if fmt == "html":
+        return formats.to_html(view, formats.decide(view))
     raise ValueError(f"unknown report format {fmt}")
 
 
