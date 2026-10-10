@@ -120,8 +120,12 @@ def test_a_dry_run_writes_nothing(sample: str, tmp_path: Path, monkeypatch) -> N
     shutil.copytree(SAMPLES / sample, root)
     subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    # Without maintenance.auto=false the commit starts Git's background
+    # maintenance, whose lock file can appear or vanish in .git while the test
+    # compares it, as seen on the macOS runners.
     subprocess.run(["git", "-c", "user.name=ProdPilot Test", "-c",
-                    "user.email=test@prodpilot.invalid", "-C", str(root), "commit", "-q",
+                    "user.email=test@prodpilot.invalid", "-c", "maintenance.auto=false",
+                    "-c", "gc.auto=0", "-C", str(root), "commit", "-q",
                     "-m", "sample"], check=True)
     workdir = tmp_path / "cwd"
     workdir.mkdir()
