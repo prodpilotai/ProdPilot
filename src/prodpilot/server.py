@@ -33,7 +33,7 @@ from typing import Any
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from prodpilot import __version__, audit, dispatch, prodpush, verify
+from prodpilot import __version__, audit, dispatch, nodever, prodpush, verify
 from prodpilot.constraints import ContractError
 from prodpilot.detection import DetectionError, detect_stack
 from prodpilot.dispatch import Claim, DispatchError
@@ -155,11 +155,18 @@ def register_tools(server: MCPServer) -> None:
             }
 
         blueprint = result.blueprint()
+        described = None
+        if blueprint:
+            # The declared Node version travels with the blueprint as
+            # information. It is not a blueprint item and no rule reads it.
+            described = {**blueprint.to_dict(),
+                         "node": nodever.choose(project_path).to_dict(),
+                         "notices": list(nodever.notices(project_path))}
         return {
             "ok": True,
             "error": None,
             "detection": result.to_dict(),
-            "blueprint": blueprint.to_dict() if blueprint else None,
+            "blueprint": described,
         }
 
     @server.tool(

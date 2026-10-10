@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from prodpilot import astchecks, filechecks
+from prodpilot import astchecks, filechecks, nodever
 from prodpilot.blueprint import Domain, Priority, Stack
 from prodpilot.detection import DetectionResult, detect_stack
 from prodpilot.findings import Finding, Status
@@ -230,6 +230,9 @@ class Report:
     score: int
     band: Band
     results: tuple[RuleResult, ...]
+    # Informational only, such as an end-of-life Node version. Never a rule,
+    # never part of the score, never read by the gate.
+    notices: tuple[str, ...] = ()
 
     @property
     def issues(self) -> tuple[RuleResult, ...]:
@@ -338,6 +341,7 @@ def run(root: str | Path) -> Report:
         score=score,
         band=band_of(score),
         results=tuple(results),
+        notices=nodever.notices(base),
     )
     logger.info("%s", report.summary())
     return report
