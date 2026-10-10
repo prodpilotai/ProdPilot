@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0, unreleased
+## 1.1.0, 10 October 2026
 
 A hardening release. It adds tooling around ProdPilot and changes nothing about
 how a project is judged: the ruleset, the scoring weights and bands, the shipped

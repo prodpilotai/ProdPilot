@@ -140,3 +140,46 @@ jobs:
           "$bin/python" install_check.py before-upgrade
           "$bin/python" -m pip install --quiet --upgrade "$wheel"
           "$bin/python" install_check.py after-upgrade "$version"
+
+  # The example workflow from docs/github-action.md, pinned to the published
+  # release, run against a ready and a broken sample. Move the pin with each
+  # release.
+  published-action:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: The ready sample passes with the published action
+        id: ready
+        uses: prodpilotai/ProdPilot@v1.1.0
+        with:
+          version: ${{ inputs.version }}
+          path: tests/samples/node_express_gated
+          min-score: "90"
+          sarif: "false"
+
+      - name: The broken sample fails with the published action
+        id: broken
+        continue-on-error: true
+        uses: prodpilotai/ProdPilot@v1.1.0
+        with:
+          version: ${{ inputs.version }}
+          path: tests/samples/node_express_insecure
+          sarif: "false"
+
+      - name: Exit codes are 0 and 1
+        shell: bash
+        env:
+          READY: ${{ steps.ready.outputs.exit-code }}
+          BROKEN: ${{ steps.broken.outputs.exit-code }}
+        run: |
+          echo "ready=$READY broken=$BROKEN"
+          test "$READY" = "0"
+          test "$BROKEN" = "1"
