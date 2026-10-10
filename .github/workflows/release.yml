@@ -1,13 +1,15 @@
 name: Release
 
-# Publishes to PyPI when a version tag such as v1.1.0rc1 is pushed. It uses
-# PyPI's trusted publishing, so no PyPI token is stored anywhere: the project
-# must first be registered on PyPI with this repository and this workflow as
-# its trusted publisher, and the pypi environment created in the repository.
+# Publishes to PyPI when a version tag such as v1.1.0 is pushed. The floating
+# major tag v1, which users of the GitHub Action pin to, does not match and
+# starts nothing. It uses PyPI's trusted publishing, so no PyPI token is stored
+# anywhere: the project must first be registered on PyPI with this repository
+# and this workflow as its trusted publisher, and the pypi environment created
+# in the repository.
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
 
 jobs:
   build:
